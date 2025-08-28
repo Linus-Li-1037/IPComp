@@ -1,5 +1,12 @@
 set(exes 
         IPComp
+        refactor_data
+        halfing_Vtot
+        halfing_T
+        halfing_C
+        halfing_Mach
+        halfing_PT
+        halfing_mu
         )
 foreach (EXE IN LISTS exes)
     message(STATUS "Target = ${EXE}")

@@ -71,9 +71,12 @@ namespace SZ3 {
                     levels = (uint) ceil(log2(dims[i]));
                 }
                 num_elements *= dims[i];
+                // std::cout << "Dim" << i << ": " << dims[i] << std::endl;
                 global_begin[i] = 0;
                 global_end[i] = global_dimensions[i] - 1;
             }
+
+            dec_data = static_cast<T*>(::operator new(num_elements * sizeof(T), std::align_val_t(256)));
 
             // quant_inds.reserve(num_elements);
             quant_inds = static_cast<int32_t*>(::operator new(num_elements * sizeof(int32_t), std::align_val_t(256)));
@@ -101,7 +104,7 @@ namespace SZ3 {
             size_t total_size = num_elements * sizeof(T);
             size_t size_limit = static_cast<size_t>(bitrate_list[0] / (sizeof(T) * 8) * total_size);
 
-            T *dec_data = static_cast<T*>(::operator new(num_elements * sizeof(T), std::align_val_t(256)));
+            // T *dec_data = static_cast<T*>(::operator new(num_elements * sizeof(T), std::align_val_t(256)));
 
             
             std::cout << std::endl;
@@ -184,7 +187,7 @@ namespace SZ3 {
                 eb *= range;    // relative error bound
             }
             
-            T *dec_data = static_cast<T*>(::operator new(num_elements * sizeof(T), std::align_val_t(256)));
+            // T *dec_data = static_cast<T*>(::operator new(num_elements * sizeof(T), std::align_val_t(256)));
 
             if(targetEBs.empty()){
                 std::cout << "[error] target error bound is empty." << std::endl;
@@ -223,6 +226,19 @@ namespace SZ3 {
             return dec_data;
         }
 
+        T *progressive_reconstruct(uchar const *lossless_data, T *data, std::vector<double> &targetEBs) {
+            // std::cout << "decompress(lossless_data, data, dec_data, targetEB[0], last_EB);" << std::endl;
+            decompress(lossless_data, data, dec_data, targetEBs[0], last_EB);
+            // std::cout << "decompress(lossless_data, data, dec_data, targetEB[0], last_EB); done" << std::endl;
+            last_EB = targetEBs[0];
+            
+            return dec_data;
+        }
+
+        size_t get_retrived_size(){
+            return retrieved_size;
+        }
+
         void *decompress(uchar const *lossless_data, T *data, T *dec_data, const T targetErrorBound, T lastEB) {
             // if(targetErrorBound >= lastEB){
             //     return dec_data;
@@ -247,7 +263,6 @@ namespace SZ3 {
 
             // std::vector<std::vector<int>> bitGroupOfLayer_diff(layers, std::vector<int>(lsize, 0));
             // timer.stop("pre decmp -3");            
-
             return decompress(lossless_data, data, dec_data, bitGroupOfLayer_new, bitGroupOfLayer_old);
         }
 
@@ -328,7 +343,7 @@ namespace SZ3 {
                 } else {
                     bitGroupOfLayer[i].assign(lsize, bsize);
                 }
-            }  
+            }
             return bitGroupOfLayer;
         }
 
@@ -405,10 +420,10 @@ namespace SZ3 {
                 bdelta = bitGroupOfLayer_diff[0];
                 // timer.stop("pre decmp -2");
                 compressed_size = decompress(lossless_data_pos, dec_data, bsum, bdelta, levelSize, lossless_size, cmp_data_pos, update);
-                {   // verification
-                    double psnr, nrmse, max_err, range;
-                    verify(data, dec_data, num_elements, psnr, nrmse, max_err, range);
-                }
+                // {   // verification
+                //     double psnr, nrmse, max_err, range;
+                //     verify(data, dec_data, num_elements, psnr, nrmse, max_err, range);
+                // }
             } else {
                 compressed_size = std::accumulate(lossless_size.begin(), lossless_size.end(), (size_t) 0);
                 // std::cout << "[Log] skipping layer 0" << std::endl;
@@ -447,10 +462,10 @@ namespace SZ3 {
                         for (size_t i = 0; i < num_elements; i++){
                             dec_data[i] += residual_data[i];
                         }
-                        {   // verification
-                            double psnr, nrmse, max_err, range;
-                            verify(data, dec_data, num_elements, psnr, nrmse, max_err, range);
-                        }
+                        // {   // verification
+                        //     double psnr, nrmse, max_err, range;
+                        //     verify(data, dec_data, num_elements, psnr, nrmse, max_err, range);
+                        // }
                     }
                     
                 }
@@ -905,7 +920,8 @@ namespace SZ3 {
         Quantizer quantizer;
         Encoder encoder;
         Lossless lossless;
-
+        T *dec_data;
+        double last_EB = 0;
 
     //    std::vector<int> bitgroup = {8, 8, 8, 2, 2, 2, 1, 1};
     //    std::vector<int> bitgroup = {8, 8, 8,8};
