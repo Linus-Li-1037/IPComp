@@ -9,16 +9,17 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 if (MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /bigobj")
 endif ()
-set(default_build_type "Release")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
-if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-    message(STATUS "No build type was set. Setting build type to ${default_build_type}.")
-    set(CMAKE_BUILD_TYPE ${default_build_type} CACHE
-            STRING "Choose the type to build" FORCE)
-    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release"
-            "MinSizeRel" "RelWithDebInfo")
-endif ()
-
+# set(default_build_type "Release")
+# set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
+# if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+#     message(STATUS "No build type was set. Setting build type to ${default_build_type}.")
+#     set(CMAKE_BUILD_TYPE ${default_build_type} CACHE
+#             STRING "Choose the type to build" FORCE)
+#     set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release"
+#             "MinSizeRel" "RelWithDebInfo")
+# endif ()
+set(CMAKE_CXX_FLAGS "-g -O3")
+set(CMAKE_C_FLAGS   "-g -O3")
 
 
 find_package(PkgConfig)
@@ -47,3 +48,4 @@ else ()
 endif ()
 
 add_subdirectory(src)
+add_subdirectory(prl_src)

@@ -102,163 +102,84 @@ T getRange(T* data, size_t num_elements) {
 template <class T>
 T print_max_abs(const std::vector<T>& vec){
 	T max = fabs(vec[0]);
-    // int max_index = 0;
 	for(int i=1; i<vec.size(); i++){
-		if(max < fabs(vec[i])) {
-            max = fabs(vec[i]);
-            // max_index = i;
-        }
+		if(max < fabs(vec[i])) max = fabs(vec[i]);
 	}
-	// std::cout << ": max absolute value = " << max << ", max_index = " << max_index << std::endl;
+	// std::cout << name << ": max absolute value = " << max << std::endl;
 	return max;
 }
 
 template<class T>
-bool halfing_error_PT_uniform(const T * Vx, const T * Vy, const T * Vz, const T * P, const T * D, size_t n, const std::vector<unsigned char>& mask, const double tau, std::vector<double>& ebs, std::vector<T>& PT_ori, std::vector<double>& error_est_PT, std::vector<double>& error_PT){
-	double eb_Vx = ebs[0];
-	double eb_Vy = ebs[1];
-	double eb_Vz = ebs[2];
-	double eb_P = ebs[3];
-	double eb_D = ebs[4];
-	double R = 287.1;
-	double gamma = 1.4;
-	double mi = 3.5;
-	double mu_r = 1.716e-5;
-	double T_r = 273.15;
-	double S = 110.4;
-	double c_1 = 1.0 / R;
-	double c_2 = sqrt(gamma * R);
-	int C7i[8] = {1, 7, 21, 35, 35, 21, 7, 1};
+bool halfing_error_XiXj_uniform(const T * Xi, const T * Xj, size_t n, const double tau, std::vector<double>& ebs, const std::vector<T>& XiXj_ori, std::vector<double>& error_est_XiXj, std::vector<double>& error_XiXj){
+	double eb_Xi = ebs[0];
+	double eb_Xj = ebs[1];
 	double max_value = 0;
 	int max_index = 0;
 	int n_variable = ebs.size();
-    double Mach_tmp_pow[8];
-    double e_Mach_tmp_pow[8];
 	for(int i=0; i<n; i++){
-		double e_V_TOT_2 = 0;
-		if(mask[i]) e_V_TOT_2 = MDR::compute_bound_x_square<double>(Vx[i], eb_Vx) + MDR::compute_bound_x_square<double>(Vy[i], eb_Vy) + MDR::compute_bound_x_square<double>(Vz[i], eb_Vz);
-		double V_TOT_2 = Vx[i]*Vx[i] + Vy[i]*Vy[i] + Vz[i]*Vz[i];
-		double e_V_TOT = 0;
-		if(mask[i]) e_V_TOT = MDR::compute_bound_square_root_x<double>(V_TOT_2, e_V_TOT_2);
-		double V_TOT = sqrt(V_TOT_2);
-		double e_T = c_1 * MDR::compute_bound_division<double>(P[i], D[i], eb_P, eb_D);
-		double Temp = P[i] / (D[i] * R);
-		double e_C = c_2*MDR::compute_bound_square_root_x<double>(Temp, e_T);
-		double C = c_2 * sqrt(Temp);
-		double e_Mach = MDR::compute_bound_division<double>(V_TOT, C, e_V_TOT, e_C);
-		double Mach = V_TOT / C;
-		double e_Mach_tmp = (gamma-1) / 2 * MDR::compute_bound_x_square<double>(Mach, e_Mach);
-		double Mach_tmp = 1 + (gamma-1)/2 * Mach * Mach;
-		double e_Mach_tmp_mi = 0;
-        Mach_tmp_pow[0] = 1;
-        e_Mach_tmp_pow[0] = 1;
-        for (int k = 1; k <= 7; k++) {
-            Mach_tmp_pow[k] = Mach_tmp_pow[k - 1] * Mach_tmp;
-            e_Mach_tmp_pow[k] = e_Mach_tmp_pow[k - 1] * e_Mach_tmp;
-        }
-        for (int k = 1; k <= 7; k++) {
-            e_Mach_tmp_mi += C7i[k] * Mach_tmp_pow[7 - k] * e_Mach_tmp_pow[k];
-        }
-		double Mach_tmp_mi = sqrt(Mach_tmp * Mach_tmp * Mach_tmp * Mach_tmp * Mach_tmp * Mach_tmp * Mach_tmp);
-		double e_PT = MDR::compute_bound_multiplication<double>(P[i], Mach_tmp_mi, eb_P, e_Mach_tmp_mi);
-		double PT = P[i] * Mach_tmp_mi;
+		double e_XiXj = MDR::compute_bound_multiplication<double>(Xi[i], Xj[i], eb_Xi, eb_Xj);
+        double XiXj = Xi[i] * Xj[i];
 
-		error_est_PT[i] = e_PT;
-		error_PT[i] = PT - PT_ori[i];
-		if(max_value < error_est_PT[i]){
-			max_value = error_est_PT[i];
+		error_est_XiXj[i] = e_XiXj;
+		error_XiXj[i] = XiXj - XiXj_ori[i];
+		if(max_value < error_est_XiXj[i]){
+			max_value = error_est_XiXj[i];
 			max_index = i;
 		}
 	}
-	// std::cout << "PT : max estimated error = " << max_value << ", index = " << max_index << std::endl;
+	// std::cout << "XiXj: max estimated error = " << max_value << ", index = " << max_index << std::endl;
 	// estimate error bound based on maximal errors
 	if(max_value > tau){
 		auto i = max_index;
 		double estimate_error = max_value;
-		double eb_Vx = ebs[0];
-		double eb_Vy = ebs[1];
-		double eb_Vz = ebs[2];
-		double eb_P = ebs[3];
-		double eb_D = ebs[4];
+		double eb_Xi = ebs[0];
+		double eb_Xj = ebs[1];
 		while(estimate_error > tau){
     		// std::cout << "uniform decrease\n";
-			eb_Vx = eb_Vx / 1.5;
-			eb_Vy = eb_Vy / 1.5;
-			eb_Vz = eb_Vz / 1.5; 
-			eb_P = eb_P / 1.5;
-			eb_D = eb_D / 1.5;
-			double e_V_TOT_2 = 0;
-			if(mask[i]) e_V_TOT_2 = MDR::compute_bound_x_square<double>(Vx[i], eb_Vx) + MDR::compute_bound_x_square<double>(Vy[i], eb_Vy) + MDR::compute_bound_x_square<double>(Vz[i], eb_Vz);
-			double V_TOT_2 = Vx[i]*Vx[i] + Vy[i]*Vy[i] + Vz[i]*Vz[i];
-			double e_V_TOT = 0;
-			if(mask[i]) e_V_TOT = MDR::compute_bound_square_root_x<double>(V_TOT_2, e_V_TOT_2);
-			double V_TOT = sqrt(V_TOT_2);
-			double e_T = c_1 * MDR::compute_bound_division<double>(P[i], D[i], eb_P, eb_D);
-			double Temp = P[i] / (D[i] * R);
-			double e_C = c_2*MDR::compute_bound_square_root_x<double>(Temp, e_T);
-			double C = c_2 * sqrt(Temp);
-			double e_Mach = MDR::compute_bound_division<double>(V_TOT, C, e_V_TOT, e_C);
-			double Mach = V_TOT / C;
-			double e_Mach_tmp = (gamma-1) / 2 * MDR::compute_bound_x_square<double>(Mach, e_Mach);
-			double Mach_tmp = 1 + (gamma-1)/2 * Mach * Mach;
-			double e_Mach_tmp_mi = 0;
-			Mach_tmp_pow[0] = 1;
-            e_Mach_tmp_pow[0] = 1;
-            for (int k = 1; k <= 7; k++) {
-                Mach_tmp_pow[k] = Mach_tmp_pow[k - 1] * Mach_tmp;
-                e_Mach_tmp_pow[k] = e_Mach_tmp_pow[k - 1] * e_Mach_tmp;
-            }
-            for (int k = 1; k <= 7; k++) {
-                e_Mach_tmp_mi += C7i[k] * Mach_tmp_pow[7 - k] * e_Mach_tmp_pow[k];
-            }
-            double Mach_tmp_mi = sqrt(Mach_tmp * Mach_tmp * Mach_tmp * Mach_tmp * Mach_tmp * Mach_tmp * Mach_tmp);
-			estimate_error = MDR::compute_bound_multiplication<double>(P[i], Mach_tmp_mi, eb_P, e_Mach_tmp_mi);
+			eb_Xi = eb_Xi / 1.5;
+			eb_Xj = eb_Xj / 1.5;
+			estimate_error = MDR::compute_bound_multiplication<double>(Xi[i], Xj[i], eb_Xi, eb_Xj);
 		}
-		ebs[0] = eb_Vx;
-		ebs[1] = eb_Vy;
-		ebs[2] = eb_Vz;
-		ebs[3] = eb_P;
-		ebs[4] = eb_D;
+		ebs[0] = eb_Xi;
+		ebs[1] = eb_Xj;
 		return false;
 	}
 	return true;
 }
 
-template<class T>
-void reconstruct_GE(const std::string data_file_prefix, const std::string rdata_file_prefix,
-                    double target_eb,
+template<class T, class ... Dims>
+void reconstruct_S3D(const std::string data_file_prefix, const std::string rdata_file_prefix,
+                    std::vector<int> index, double target_eb,
                     int interp_op, int direction_op,
-                    int layers){
+                    int layers, Dims ... args){
     size_t num_elements = 0;
     size_t compressed_elements = 0;
-    std::vector<std::string> var_list = {"VelocityX", "VelocityY", "VelocityZ", "Pressure", "Density"};
-    int n_variable = var_list.size();
+    std::vector<std::string> species = {"H2", "O2", "H2O", "H", "O", "OH"};
+    int n_variable = index.size();
     std::vector<std::unique_ptr<T[]>> vars_vec;
     std::vector<std::unique_ptr<SZ3::uchar[]>> vars_cmp;
     vars_vec.reserve(n_variable);
     vars_cmp.reserve(n_variable);
     std::vector<double> targetEBs;
     for(int i=0; i<n_variable; i++){
-        auto original_data = SZ3::readfile<T>((data_file_prefix + var_list[i] + ".dat").c_str(), num_elements);
+        auto original_data = SZ3::readfile<T>((data_file_prefix + species[index[i]] + ".dat").c_str(), num_elements);
         targetEBs.push_back(target_eb * getRange(original_data.get(), num_elements));
         vars_vec.push_back(std::move(original_data));
 
-        auto cmp_data = SZ3::readfile<SZ3::uchar>((rdata_file_prefix + var_list[i] + "_refactored/" + var_list[i] + "_psz.bin").c_str(), compressed_elements);
+        auto cmp_data = SZ3::readfile<SZ3::uchar>((rdata_file_prefix + species[index[i]] + "_refactored/" + species[index[i]] + "_psz.bin").c_str(), compressed_elements);
         vars_cmp.push_back(std::move(cmp_data));
     }
+    
+    std::vector<T> XiXj(num_elements);
+	for(int i=0; i<num_elements; i++){
+		XiXj[i] = vars_vec[0][i] * vars_vec[1][i];
+	}
+    target_eb *= getRange(XiXj.data(), num_elements);
 
-    std::vector<T> PT_ori(num_elements, 0);
-    MDR::compute_PT(vars_vec[0].get(), vars_vec[1].get(), vars_vec[2].get(), vars_vec[3].get(), vars_vec[4].get(), num_elements, PT_ori.data());
-    target_eb *= getRange(PT_ori.data(), num_elements);
-
-    std::string mask_file = rdata_file_prefix + "psz_mask.bin";
-    uint32_t mask_file_size = 0;
-    auto mask = readmask(mask_file.c_str(), mask_file_size);
-
-    std::vector<SZ3::SZProgressiveMQuant<T, 1, SZ3::LinearQuantizer2<T>, SZ3::BypassEncoder<int>, SZ3::Lossless_zstd>> reconstructors;
-    std::array<size_t, 1> dims = {num_elements};
+    std::vector<SZ3::SZProgressiveMQuant<T, 3, SZ3::LinearQuantizer2<T>, SZ3::BypassEncoder<int>, SZ3::Lossless_zstd>> reconstructors;
+    auto dims = std::array<size_t, 3>{static_cast<size_t>(std::forward<Dims>(args))...};
     for(int i=0; i<n_variable; i++){
-        auto sz = SZ3::SZProgressiveMQuant<T, 1, SZ3::LinearQuantizer2<T>, SZ3::BypassEncoder<int>, SZ3::Lossless_zstd>(
+        auto sz = SZ3::SZProgressiveMQuant<T, 3, SZ3::LinearQuantizer2<T>, SZ3::BypassEncoder<int>, SZ3::Lossless_zstd>(
                 // SZ3::LinearQuantizer2<T>(num, eb, 524288),
                 SZ3::LinearQuantizer2<T>(num_elements, 1), // the second arg is dummy.
                 SZ3::BypassEncoder<int>(),
@@ -274,8 +195,8 @@ void reconstruct_GE(const std::string data_file_prefix, const std::string rdata_
     bool tolerance_met = false;
     std::vector<std::vector<T>> reconstructed_vars(n_variable, std::vector<T>(num_elements));
     std::vector<size_t> total_retrieved_size(n_variable, 0);
-    std::vector<double> error_PT(num_elements);
-    std::vector<double> error_est_PT(num_elements);
+    std::vector<double> error_XiXj(num_elements);
+    std::vector<double> error_est_XiXj(num_elements);
     double max_est_error = 0, max_act_error = 0;
 
     SZ3::Timer timer(true);
@@ -283,43 +204,30 @@ void reconstruct_GE(const std::string data_file_prefix, const std::string rdata_
     while((!tolerance_met) && (iter < max_iter)){
         iter ++;
         // std::cout << "iter " << iter << std::endl;
-        // std::cout << "iter #" << iter << ", ebs:" << std::endl;
-        // for(int j=0; j<n_variable; j++){
-        //     std::cout << targetEBs[j] << " ";
-        // }
-        // std::cout << std::endl;
         for(int i=0; i<n_variable; i++){
             std::vector<double> tmpEBs = {targetEBs[i]};
             auto reconstructed_data = reconstructors[i].progressive_reconstruct(vars_cmp[i].get(), vars_vec[i].get(), tmpEBs);
             total_retrieved_size[i] = reconstructors[i].get_retrieved_size();
             memcpy(reconstructed_vars[i].data(), reconstructed_data, num_elements*sizeof(T));
-            if(i < 3){
-                for(int j=0; j<num_elements; j++){
-                    if(!mask[j]) reconstructed_vars[i][j] = 0;
-                }
-            }
         }
-        T * Vx_dec = reconstructed_vars[0].data();
-        T * Vy_dec = reconstructed_vars[1].data();
-        T * Vz_dec = reconstructed_vars[2].data();
-        T * P_dec = reconstructed_vars[3].data();
-        T * D_dec = reconstructed_vars[4].data();
-        tolerance_met = halfing_error_PT_uniform(Vx_dec, Vy_dec, Vz_dec, P_dec, D_dec, num_elements, mask, target_eb, targetEBs, PT_ori, error_est_PT, error_PT);
-        max_act_error = print_max_abs(error_PT);
-        max_est_error = print_max_abs(error_est_PT);  
+        T * Xi_dec = reconstructed_vars[0].data();
+        T * Xj_dec = reconstructed_vars[1].data();
+        tolerance_met = halfing_error_XiXj_uniform(Xi_dec, Xj_dec, num_elements, target_eb, targetEBs, XiXj, error_est_XiXj, error_XiXj);
+        max_act_error = print_max_abs(error_XiXj);
+        max_est_error = print_max_abs(error_est_XiXj);  
     }
     double elapsed_time = timer.stop();
     std::cout << "requested_error = " << target_eb << std::endl;
 	std::cout << "max_est_error = " << max_est_error << std::endl;
 	std::cout << "max_act_error = " << max_act_error << std::endl;
 	std::cout << "iter = " << iter << std::endl;
-    size_t total_size = mask_file_size + std::accumulate(total_retrieved_size.begin(), total_retrieved_size.end(), size_t(0));
+    size_t total_size = std::accumulate(total_retrieved_size.begin(), total_retrieved_size.end(), size_t(0));
 	double cr = n_variable * num_elements * sizeof(T) * 1.0 / total_size;
 	std::cout << "each retrieved size:";
     for(int i=0; i<n_variable; i++){
         std::cout << total_retrieved_size[i] << ", ";
     }
-	std::cout << "mask_file_size = " << mask_file_size << std::endl;
+    std::cout << std::endl;
     std::cout << "aggregated cr = " << cr << std::endl;
 	std::cout << "bitrate = " << ((sizeof(T) * 8) / cr) << std::endl;
     std::cout << "elapsed_time = " << elapsed_time << std::endl;
@@ -328,26 +236,26 @@ void reconstruct_GE(const std::string data_file_prefix, const std::string rdata_
 
 template<class T>
 void QoI_decompress_preprocess(const std::string data_name, const std::string data_prefix_path,
-                                double target_eb, 
+                                std::vector<int> index, double target_eb,
                                 int interp_op, int direction_op,
                                 int layers){
     std::string data_file_prefix = data_prefix_path + "/data/";
     std::string rdata_file_prefix = data_prefix_path + "/refactor/";
-    if (std::strcmp(data_name.c_str(), "GE") == 0) {
-        reconstruct_GE<T>(data_file_prefix, rdata_file_prefix, target_eb, interp_op, direction_op, layers);
+    if (std::strcmp(data_name.c_str(), "S3D") == 0) {
+        reconstruct_S3D<T>(data_file_prefix, rdata_file_prefix, index, target_eb, interp_op, direction_op, layers, 1200, 334, 200);
     }
     else {
-        std::cout << "No PT for " << data_name << " dataset." << std::endl;
+        std::cout << "No XiXj for " << data_name << " dataset." << std::endl;
     }
     return;                     
 }
 
 void usage(char* cmd) {
-    std::cout << "halfing_PT usage: " << cmd <<
-                  " data_name data_path - [dataType: f/d] requested_eb"
+    std::cout << "halfing_xixj usage: " << cmd <<
+                  " data_name data_path - [dataType: f/d] requested_eb xi xj"
                   << std::endl
                   << "example: " << cmd <<
-                  " GE ./dataset/GE/ -d 0.1" << std::endl;
+                  " S3D ./dataset/S3D/ -d 0.1 1 3" << std::endl;
 }
 
 
@@ -361,7 +269,15 @@ int main(int argc, char **argv) {
     std::string data_name = argv[argv_id++];
     std::string data_path = argv[argv_id++];
     double tau = atof(argv[4]);
-
+    int id_i = atoi(argv[5]);
+    int id_j = atoi(argv[6]);
+    if(!(id_i == 1 && id_j == 3) && 
+        !(id_i == 4 && id_j == 5) && 
+        !(id_i == 0 && id_j == 4) && 
+        !(id_i == 3 && id_j == 5)){
+        perror("No such QoI\n");
+    }
+    std::vector<int> index = {id_i, id_j};
 
     int interp_op = 1; // linear:0 cubic:1
     int direction_op = 0; // dimension high -> low
@@ -369,11 +285,11 @@ int main(int argc, char **argv) {
 
     if((argv[3] + 1)[0] == 'f') {
         layers = 1;
-        QoI_decompress_preprocess<float>(data_name, data_path, tau, interp_op, direction_op, layers);
+        QoI_decompress_preprocess<float>(data_name, data_path, index, tau, interp_op, direction_op, layers);
     } // precision: 1e-6
     else if((argv[3] + 1)[0] == 'd') {
         layers = 9;
-        QoI_decompress_preprocess<double>(data_name, data_path, tau, interp_op, direction_op, layers);
+        QoI_decompress_preprocess<double>(data_name, data_path, index, tau, interp_op, direction_op, layers);
     } // precision: 1e-9
 
     

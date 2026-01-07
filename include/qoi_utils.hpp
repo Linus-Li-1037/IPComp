@@ -182,6 +182,14 @@ void compute_QoIs(const T * Vx, const T * Vy, const T * Vz, const T * P, const T
 }
 
 template <class T>
+void compute_VTOT2(const T * Vx, const T * Vy, const T * Vz, size_t n, T * V_TOT2_){
+	for(int i=0; i<n; i++){
+		double V_TOT2 = Vx[i]*Vx[i] + Vy[i]*Vy[i] + Vz[i]*Vz[i];
+		V_TOT2_[i] = V_TOT2;
+	}
+}
+
+template <class T>
 void compute_VTOT(const T * Vx, const T * Vy, const T * Vz, size_t n, T * V_TOT_){
 	for(int i=0; i<n; i++){
 		double V_TOT_2 = Vx[i]*Vx[i] + Vy[i]*Vy[i] + Vz[i]*Vz[i];

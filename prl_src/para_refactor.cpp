@@ -15,6 +15,7 @@
 #include <sstream>
 #include "ompSZp_typemanager.h"
 #include "ompSZp_typemanager.c"
+#include "mpi.h"
 
 template <class T>
 void writemask(const char *filepath, T *data, size_t num_elements) {
@@ -62,14 +63,6 @@ template<uint N, typename T, class ... Dims>
 SZ3::uchar *interp_compress(std::unique_ptr<T[]>& data, int interp_op, int direction_op,
                                 int layers, double &compression_ratio, size_t &total_compressed_size, Dims ... args) {
     std::vector<size_t> compressed_size;
-//     std::cout << "interp_op = " << interp_op
-//           << ", direction_op = " << direction_op
-//           << ", layers = " << layers
-//           << ", compression_ratio = " << compression_ratio
-//           << ", total_compressed_size = " << total_compressed_size
-//           << ", args = ";
-// ((std::cout << args << " "), ...);
-// std::cout << std::endl;
 
     total_compressed_size = 0;
     SZ3::uchar *compressed;
@@ -141,15 +134,13 @@ void refactor_GE(const std::string data_file_prefix, const std::string rdata_fil
     std::string mask_file = rdata_file_prefix + "psz_mask.bin";
     writemask(mask_file.c_str(), mask.data(), mask.size());
 
+    double compression_ratio = -1;
+    size_t compressed_size = 0;
     std::string filename;
     for(int i=0; i<n_variable; i++){
-        double compression_ratio = -1;
-        size_t compressed_size = 0;
-        std::cout << "num_elements = " << num_elements << std::endl;
         SZ3::uchar * compressed = interp_compress<1, T>(vars_vec[i], interp_op, direction_op, layers, compression_ratio, compressed_size, num_elements);
         filename = rdata_file_prefix + var_list[i] + "_refactored/" + var_list[i] + "_psz.bin";
         SZ3::writefile(filename.c_str(), compressed, compressed_size);
-        delete[] compressed;
     }
     return;
 }
@@ -165,12 +156,12 @@ void refactor_3D(const std::string data_file_prefix, const std::string rdata_fil
     std::vector<std::string> var_list = {"VelocityX", "VelocityY", "VelocityZ"};
     int n_variable = var_list.size();
 
-    std::vector<unsigned char> mask(num_elements, 0);
-    for(int i=0; i<num_elements; i++){
-        if((velocityX_vec[i]*velocityX_vec[i] + velocityY_vec[i]*velocityY_vec[i] + velocityZ_vec[i]*velocityZ_vec[i]) != 0){            
-            mask[i] = 1;
-        }
-    }
+    // std::vector<unsigned char> mask(num_elements, 0);
+    // for(int i=0; i<num_elements; i++){
+    //     if((velocityX_vec[i]*velocityX_vec[i] + velocityY_vec[i]*velocityY_vec[i] + velocityZ_vec[i]*velocityZ_vec[i]) != 0){            
+    //         mask[i] = 1;
+    //     }
+    // }
 
     std::vector<std::unique_ptr<T[]>> vars_vec;
     vars_vec.reserve(n_variable);
@@ -178,41 +169,15 @@ void refactor_3D(const std::string data_file_prefix, const std::string rdata_fil
     vars_vec.push_back(std::move(velocityY_vec));
     vars_vec.push_back(std::move(velocityZ_vec));
 
-    std::string mask_file = rdata_file_prefix + "psz_mask.bin";
-    writemask(mask_file.c_str(), mask.data(), mask.size());
+    // std::string mask_file = rdata_file_prefix + "psz_mask.bin";
+    // writemask(mask_file.c_str(), mask.data(), mask.size());
 
+    double compression_ratio = -1;
+    size_t compressed_size = 0;
     std::string filename;
     for(int i=0; i<n_variable; i++){
-        double compression_ratio = -1;
-        size_t compressed_size = 0;
         SZ3::uchar * compressed = interp_compress<3, T>(vars_vec[i], interp_op, direction_op, layers, compression_ratio, compressed_size, std::forward<Dims>(args)...);
         filename = rdata_file_prefix + var_list[i] + "_refactored/" + var_list[i] + "_psz.bin";
-        SZ3::writefile(filename.c_str(), compressed, compressed_size);
-    }
-    return;
-}
-
-template<class T, class ... Dims>
-void refactor_S3D(const std::string data_file_prefix, const std::string rdata_file_prefix,
-                    int interp_op, int direction_op,
-                    int layers, Dims ... args){
-    std::vector<std::string> species = {"H2", "O2", "H2O", "H", "O", "OH"};
-    size_t num_elements = 0;
-    std::vector<std::unique_ptr<T[]>> vars_vec;
-    int n_variable = species.size();
-    vars_vec.reserve(n_variable);
-
-    for(int i=0; i<n_variable; i++){
-        auto Xi_vec = SZ3::readfile<T>((data_file_prefix + species[i] + ".dat").c_str(), num_elements);
-        vars_vec.push_back(std::move(Xi_vec));
-    }
-
-    std::string filename;
-    for(int i=0; i<n_variable; i++){
-        double compression_ratio = -1;
-        size_t compressed_size = 0;
-        SZ3::uchar * compressed = interp_compress<3, T>(vars_vec[i], interp_op, direction_op, layers, compression_ratio, compressed_size, std::forward<Dims>(args)...);
-        filename = rdata_file_prefix + species[i] + "_refactored/" + species[i] + "_psz.bin";
         SZ3::writefile(filename.c_str(), compressed, compressed_size);
     }
     return;
@@ -240,7 +205,7 @@ void QoI_compress_preprocess(const std::string data_name, const std::string data
         refactor_3D<T>(data_file_prefix, rdata_file_prefix, interp_op, direction_op, layers, 256, 384, 384);
     }
     else if (std::strcmp(data_name.c_str(), "S3D") == 0){
-        refactor_S3D<T>(data_file_prefix, rdata_file_prefix, interp_op, direction_op, layers, 1200, 334, 200);
+        refactor_3D<T>(data_file_prefix, rdata_file_prefix, interp_op, direction_op, layers, 500, 500, 500);
     }
     else if (std::strcmp(data_name.c_str(), "Nek5000") == 0){
         refactor_3D<T>(data_file_prefix, rdata_file_prefix, interp_op, direction_op, layers, 510, 510, 510);
@@ -248,21 +213,34 @@ void QoI_compress_preprocess(const std::string data_name, const std::string data
     else if (std::strcmp(data_name.c_str(), "JHTDB_3GB") == 0){
         refactor_3D<T>(data_file_prefix, rdata_file_prefix, interp_op, direction_op, layers, 512, 512, 512);
     }
-    else if (std::strcmp(data_name.c_str(), "JHTDB_1.5GB") == 0){
+    else if (std::strcmp(data_name.c_str(), "JHTDB") == 0){
+        refactor_3D<T>(data_file_prefix, rdata_file_prefix, interp_op, direction_op, layers, 128, 512, 512);
+    }
+    else if (std::strcmp(data_name.c_str(), "JHTDB_1024") == 0){
         refactor_3D<T>(data_file_prefix, rdata_file_prefix, interp_op, direction_op, layers, 256, 512, 512);
+    }
+    else if (std::strcmp(data_name.c_str(), "JHTDB_512") == 0){
+        refactor_3D<T>(data_file_prefix, rdata_file_prefix, interp_op, direction_op, layers, 512, 512, 512);
     }
     return;
 }
 
 void usage(char* cmd) {
-    std::cout << "refactor_data usage: " << cmd <<
+    std::cout << "para_refactor usage: " << cmd <<
                   " data_name data_path -[dataType: f/d]"
                   << std::endl
                   << "example: " << cmd <<
-                  " GE ./dataset/GE/ -d" << std::endl;
+                  " JHTDB ./dataset/JHTDB -f" << std::endl;
 }
 
 int main(int argc, char **argv) {
+    MPI_Init(&argc, &argv);
+    int rank, size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    std::ostringstream oss;
+    oss << rank;
+
     if (argc < 2) {
         usage(argv[0]);
         return 0;
@@ -271,12 +249,14 @@ int main(int argc, char **argv) {
     int argv_id = 1;
     std::string data_name = argv[argv_id++];
     std::string data_path = argv[argv_id++];
+    data_path += oss.str();
 
     int interp_op = 1; // linear:0 cubic:1
     int direction_op = 0; // dimension high -> low
     int layers = 9;
 
-    SZ3::Timer timer(true);
+    double elapsed_time;
+	elapsed_time = -MPI_Wtime();
 
     if((argv[3] + 1)[0] == 'f') {
         layers = 1;
@@ -287,8 +267,14 @@ int main(int argc, char **argv) {
         QoI_compress_preprocess<double>(data_name, data_path, interp_op, direction_op, layers);
     } // precision: 1e-9
 
-    double elapsed_time = timer.stop();
-    std::cout << "elapsed_time = " << elapsed_time << std::endl;
+    elapsed_time += MPI_Wtime();
+    double max_elapsed_time;
+    MPI_Reduce(&elapsed_time, &max_elapsed_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+	// elapsed_time = (double)(end.tv_sec - start.tv_sec) + (double)(end.tv_nsec - start.tv_nsec)/(double)1000000000;
+	// printf("elapsed_time = %.6f\n", elapsed_time);
+    if(rank==0) printf("max_elapsed_time = %.6f\n", max_elapsed_time);
 
+    MPI_Finalize();
+    
     return 0;
 }

@@ -209,13 +209,16 @@ void reconstruct_GE(const std::string data_file_prefix, const std::string rdata_
     std::vector<double> error_C(num_elements);
     std::vector<double> error_est_C(num_elements);
     double max_est_error = 0, max_act_error = 0;
+
+    SZ3::Timer timer(true);
+
     while((!tolerance_met) && (iter < max_iter)){
         iter ++;
-        std::cout << "iter " << iter << std::endl;
+        // std::cout << "iter " << iter << std::endl;
         for(int i=0; i<n_variable; i++){
             std::vector<double> tmpEBs = {targetEBs[i]};
             auto reconstructed_data = reconstructors[i].progressive_reconstruct(vars_cmp[i].get(), vars_vec[i].get(), tmpEBs);
-            total_retrieved_size[i] = reconstructors[i].get_retrived_size();
+            total_retrieved_size[i] = reconstructors[i].get_retrieved_size();
             memcpy(reconstructed_vars[i].data(), reconstructed_data, num_elements*sizeof(T));
         }
         T * P_dec = reconstructed_vars[0].data();
@@ -224,6 +227,7 @@ void reconstruct_GE(const std::string data_file_prefix, const std::string rdata_
         max_act_error = print_max_abs(error_C);
         max_est_error = print_max_abs(error_est_C);  
     }
+    double elapsed_time = timer.stop();
     std::cout << "requested_error = " << target_eb << std::endl;
 	std::cout << "max_est_error = " << max_est_error << std::endl;
 	std::cout << "max_act_error = " << max_act_error << std::endl;
@@ -237,6 +241,7 @@ void reconstruct_GE(const std::string data_file_prefix, const std::string rdata_
     std::cout << std::endl;
     std::cout << "aggregated cr = " << cr << std::endl;
 	std::cout << "bitrate = " << ((sizeof(T) * 8) / cr) << std::endl;
+    std::cout << "elapsed_time = " << elapsed_time << std::endl;
     return;
 }
 
@@ -257,7 +262,7 @@ void QoI_decompress_preprocess(const std::string data_name, const std::string da
 }
 
 void usage(char* cmd) {
-    std::cout << "halfing_T usage: " << cmd <<
+    std::cout << "halfing_C usage: " << cmd <<
                   " data_name data_path - [dataType: f/d] requested_eb"
                   << std::endl
                   << "example: " << cmd <<

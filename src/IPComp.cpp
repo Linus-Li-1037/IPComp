@@ -92,14 +92,14 @@ T *interp_decompress(const char *path, std::vector<double> & target_ebs, int int
     );
     sz.setupLayers(data.get());
 
-    // SZ3::Timer timer(true);
+    SZ3::Timer timer(true);
     if(mode == 0) {
         dec_data = sz.decompress(compressed, data.get(), target_ebs);
     } else {
         dec_data = sz.decompress_bitrate(compressed, data.get(), target_ebs);
     }
 
-    // timer.stop("Decompression");
+    timer.stop("Decompression");
 
     if (writeintoFile){
 //        std::string file = std::string(path).substr(std::string(path).rfind('/') + 1) + ".sz3.out";

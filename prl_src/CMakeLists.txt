@@ -1,19 +1,14 @@
+find_package(MPI REQUIRED)
+
 set(exes 
-        IPComp
-        refactor_data
-        halfing_Vtot
-        halfing_T
-        halfing_C
-        halfing_Mach
-        halfing_PT
-        halfing_mu
-        halfing_xixj
-        halfing_Vtot2
+        para_refactor
+        para_Vtot
+        para_PT
         )
 foreach (EXE IN LISTS exes)
     message(STATUS "Target = ${EXE}")
     add_executable(${EXE} ${EXE}.cpp)
-    target_link_libraries(${EXE} IPCompProj)
+    target_link_libraries(${EXE} IPCompProj MPI::MPI_CXX)
     install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/${EXE} TYPE BIN)
     # target_compile_options(${EXE} PRIVATE 
     #     -O3

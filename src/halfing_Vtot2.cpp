@@ -110,7 +110,7 @@ T print_max_abs(const std::vector<T>& vec){
 }
 
 template<class T>
-bool halfing_error_V_TOT_uniform(const T * Vx, const T * Vy, const T * Vz, size_t n, const std::vector<unsigned char>& mask, const double tau, std::vector<double>& ebs, const std::vector<T>& V_TOT_ori, std::vector<double>& error_est_V_TOT, std::vector<double>& error_V_TOT){
+bool halfing_error_V_TOT2_uniform(const T * Vx, const T * Vy, const T * Vz, size_t n, const std::vector<unsigned char>& mask, const double tau, std::vector<double>& ebs, const std::vector<T>& V_TOT2_ori, std::vector<double>& error_est_V_TOT2, std::vector<double>& error_V_TOT2){
 	double eb_Vx = ebs[0];
 	double eb_Vy = ebs[1];
 	double eb_Vz = ebs[2];
@@ -124,29 +124,26 @@ bool halfing_error_V_TOT_uniform(const T * Vx, const T * Vy, const T * Vz, size_
 		if(mask[i]) e_V_TOT_2 = MDR::compute_bound_x_square<double>(Vx[i], eb_Vx) + MDR::compute_bound_x_square<double>(Vy[i], eb_Vy) + MDR::compute_bound_x_square<double>(Vz[i], eb_Vz);
 		double V_TOT_2 = Vx[i]*Vx[i] + Vy[i]*Vy[i] + Vz[i]*Vz[i];
 		// error of total velocity
-		double e_V_TOT = 0;
-		if(mask[i]) e_V_TOT = MDR::compute_bound_square_root_x<double>(V_TOT_2, e_V_TOT_2);
-		double V_TOT = sqrt(V_TOT_2);
+		// T e_V_TOT = 0;
 		// print_error("V_TOT", V_TOT, V_TOT_ori[i], e_V_TOT);
 
-		error_est_V_TOT[i] = e_V_TOT;
-		error_V_TOT[i] = V_TOT - V_TOT_ori[i];
+		error_est_V_TOT2[i] = e_V_TOT_2;
+		error_V_TOT2[i] = V_TOT_2 - V_TOT2_ori[i];
 
-		if(max_value < error_est_V_TOT[i]){
-			max_value = error_est_V_TOT[i];
+		if(max_value < error_est_V_TOT2[i]){
+			max_value = error_est_V_TOT2[i];
 			max_index = i;
 			// max_weight_index = weight_index;
 		}
 		// if(mask[i]) weight_index++;
 	}
-	// std::cout << "Vtot: max estimated error = " << max_value << ", index = " << max_index << ", e_V_TOT_2 = " << max_e_V_TOT_2 << ", VTOT_2 = " << max_V_TOT_2 << ", Vx = " << max_Vx << ", Vy = " << max_Vy << ", Vz = " << max_Vz << std::endl;
+	// std::cout << names[0] << ": max estimated error = " << max_value << ", index = " << max_index << ", e_V_TOT_2 = " << max_e_V_TOT_2 << ", VTOT_2 = " << max_V_TOT_2 << ", Vx = " << max_Vx << ", Vy = " << max_Vy << ", Vz = " << max_Vz << std::endl;
 	// estimate error bound based on maximal errors
 	if(max_value > tau){
 		// estimate
 		auto i = max_index;
 		double estimate_error = max_value;
 		double V_TOT_2 = Vx[i]*Vx[i] + Vy[i]*Vy[i] + Vz[i]*Vz[i];
-		double V_TOT = sqrt(V_TOT_2);
 		double eb_Vx = ebs[0];
 		double eb_Vy = ebs[1];
 		double eb_Vz = ebs[2];
@@ -156,9 +153,7 @@ bool halfing_error_V_TOT_uniform(const T * Vx, const T * Vy, const T * Vz, size_
 			eb_Vx = eb_Vx / 1.5;
 			eb_Vy = eb_Vy / 1.5;
 			eb_Vz = eb_Vz / 1.5;		        		
-			double e_V_TOT_2 = MDR::compute_bound_x_square<double>(Vx[i], eb_Vx) + MDR::compute_bound_x_square<double>(Vy[i], eb_Vy) + MDR::compute_bound_x_square<double>(Vz[i], eb_Vz);
-			// float e_V_TOT = compute_bound_square_root_x(V_TOT_2, e_V_TOT_2);
-			estimate_error = MDR::compute_bound_square_root_x<double>(V_TOT_2, e_V_TOT_2);
+			estimate_error = MDR::compute_bound_x_square<double>(Vx[i], eb_Vx) + MDR::compute_bound_x_square<double>(Vy[i], eb_Vy) + MDR::compute_bound_x_square<double>(Vz[i], eb_Vz);
 		}
 		ebs[0] = eb_Vx;
 		ebs[1] = eb_Vy;
@@ -192,9 +187,9 @@ void reconstruct_GE(const std::string data_file_prefix, const std::string rdata_
         vars_cmp.push_back(std::move(cmp_data));
     }
 
-    std::vector<T> V_TOT_ori(num_elements, 0);
-    MDR::compute_VTOT(vars_vec[0].get(), vars_vec[1].get(), vars_vec[2].get(), num_elements, V_TOT_ori.data());
-    target_eb *= getRange(V_TOT_ori.data(), num_elements);
+    std::vector<T> V_TOT2_ori(num_elements, 0);
+    MDR::compute_VTOT2(vars_vec[0].get(), vars_vec[1].get(), vars_vec[2].get(), num_elements, V_TOT2_ori.data());
+    target_eb *= getRange(V_TOT2_ori.data(), num_elements);
 
     std::string mask_file = rdata_file_prefix + "psz_mask.bin";
     uint32_t mask_file_size = 0;
@@ -219,8 +214,8 @@ void reconstruct_GE(const std::string data_file_prefix, const std::string rdata_
     bool tolerance_met = false;
     std::vector<std::vector<T>> reconstructed_vars(n_variable, std::vector<T>(num_elements));
     std::vector<size_t> total_retrieved_size(n_variable, 0);
-    std::vector<double> error_V_TOT(num_elements);
-    std::vector<double> error_est_V_TOT(num_elements);
+    std::vector<double> error_V_TOT2(num_elements);
+    std::vector<double> error_est_V_TOT2(num_elements);
     double max_est_error = 0, max_act_error = 0;
 
     SZ3::Timer timer(true);
@@ -240,9 +235,9 @@ void reconstruct_GE(const std::string data_file_prefix, const std::string rdata_
         T * Vx_dec = reconstructed_vars[0].data();
         T * Vy_dec = reconstructed_vars[1].data();
         T * Vz_dec = reconstructed_vars[2].data();
-        tolerance_met = halfing_error_V_TOT_uniform(Vx_dec, Vy_dec, Vz_dec, num_elements, mask, target_eb, targetEBs, V_TOT_ori, error_est_V_TOT, error_V_TOT);
-        max_act_error = print_max_abs(error_V_TOT);
-        max_est_error = print_max_abs(error_est_V_TOT);  
+        tolerance_met = halfing_error_V_TOT2_uniform(Vx_dec, Vy_dec, Vz_dec, num_elements, mask, target_eb, targetEBs, V_TOT2_ori, error_est_V_TOT2, error_V_TOT2);
+        max_act_error = print_max_abs(error_V_TOT2);
+        max_est_error = print_max_abs(error_est_V_TOT2);  
     }
     double elapsed_time = timer.stop();
     std::cout << "requested_error = " << target_eb << std::endl;
@@ -285,9 +280,9 @@ void reconstruct_3D(const std::string data_file_prefix, const std::string rdata_
         vars_cmp.push_back(std::move(cmp_data));
     }
 
-    std::vector<T> V_TOT_ori(num_elements, 0);
-    MDR::compute_VTOT(vars_vec[0].get(), vars_vec[1].get(), vars_vec[2].get(), num_elements, V_TOT_ori.data());
-    target_eb *= getRange(V_TOT_ori.data(), num_elements);
+    std::vector<T> V_TOT2_ori(num_elements, 0);
+    MDR::compute_VTOT2(vars_vec[0].get(), vars_vec[1].get(), vars_vec[2].get(), num_elements, V_TOT2_ori.data());
+    target_eb *= getRange(V_TOT2_ori.data(), num_elements);
 
     std::string mask_file = rdata_file_prefix + "psz_mask.bin";
     uint32_t mask_file_size = 0;
@@ -312,8 +307,8 @@ void reconstruct_3D(const std::string data_file_prefix, const std::string rdata_
     bool tolerance_met = false;
     std::vector<std::vector<T>> reconstructed_vars(n_variable, std::vector<T>(num_elements));
     std::vector<size_t> total_retrieved_size(n_variable, 0);
-    std::vector<double> error_V_TOT(num_elements);
-    std::vector<double> error_est_V_TOT(num_elements);
+    std::vector<double> error_V_TOT2(num_elements);
+    std::vector<double> error_est_V_TOT2(num_elements);
     double max_est_error = 0, max_act_error = 0;
 
     SZ3::Timer timer(true);
@@ -333,9 +328,9 @@ void reconstruct_3D(const std::string data_file_prefix, const std::string rdata_
         T * Vx_dec = reconstructed_vars[0].data();
         T * Vy_dec = reconstructed_vars[1].data();
         T * Vz_dec = reconstructed_vars[2].data();
-        tolerance_met = halfing_error_V_TOT_uniform(Vx_dec, Vy_dec, Vz_dec, num_elements, mask, target_eb, targetEBs, V_TOT_ori, error_est_V_TOT, error_V_TOT);
-        max_act_error = print_max_abs(error_V_TOT);
-        max_est_error = print_max_abs(error_est_V_TOT);  
+        tolerance_met = halfing_error_V_TOT2_uniform(Vx_dec, Vy_dec, Vz_dec, num_elements, mask, target_eb, targetEBs, V_TOT2_ori, error_est_V_TOT2, error_V_TOT2);
+        max_act_error = print_max_abs(error_V_TOT2);
+        max_est_error = print_max_abs(error_est_V_TOT2);  
     }
     double elapsed_time = timer.stop();
     std::cout << "requested_error = " << target_eb << std::endl;

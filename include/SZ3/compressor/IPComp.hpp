@@ -205,6 +205,8 @@ namespace SZ3 {
             // decompress(lossless_data, data, dec_data, targetEBs[0]* (1 + log2(targetEBs[0] / ebs[0]) / 16.), 0);
             std::cout << "[Log] Data Chunk #1: " << "size = " << retrieved_size << " Bytes (" << retrieved_size * 100.0 / (num_elements * sizeof(T)) << "\% original data)" << std::endl;
             printf("[Log] Total Retrieved size = %lu Bytes (%.3f%% original data, bitrate = %.3f bps)\n", retrieved_size, retrieved_size * 100.0 / (num_elements * sizeof(T)), retrieved_size * 8.0 * sizeof(T) / (num_elements * sizeof(T)) );
+            printf("Compression Ratio = %.5f\n", (num_elements * sizeof(T) * 1.0) / retrieved_size);
+            printf("Bitrate = %.5f\n", retrieved_size * 8.0 / num_elements);
             last_rs = retrieved_size;
             // std::cout << "-------- compression ratio = " << (num_elements * sizeof(T)) * 1.0/ retrieved_size  << " --------" << std::endl;
             
@@ -220,6 +222,8 @@ namespace SZ3 {
 
                 std::cout << "[Log] Data Chunk #"<< i + 1 <<": " << "size = " << retrieved_size - last_rs << " Bytes (" << (retrieved_size - last_rs) * 100.0 / (num_elements * sizeof(T)) << "\% original data)" << std::endl;
                 printf("[Log] Retrieved size = %lu Bytes (%.3f%% original data, bitrate = %.3f bps)\n", retrieved_size, retrieved_size * 100.0 / (num_elements * sizeof(T)), retrieved_size * 8.0 * sizeof(T) / (num_elements * sizeof(T)) );
+                printf("Compression Ratio = %.5f\n", (num_elements * sizeof(T) * 1.0) / retrieved_size);
+                printf("Bitrate = %.5f\n", retrieved_size * 8.0 / num_elements);
                 last_rs = retrieved_size;
                 // std::cout << "-------- compression ratio = " << (num_elements * sizeof(T)) * 1.0 / retrieved_size << " --------" << std::endl;
             }
@@ -235,8 +239,28 @@ namespace SZ3 {
             return dec_data;
         }
 
-        size_t get_retrived_size(){
+        size_t get_retrieved_size(){
             return retrieved_size;
+        }
+
+        size_t get_metadata_size(){
+            return metadata_size;
+        }
+
+        size_t get_metadata1_size(){
+            return metadata1_size;
+        }
+
+        size_t get_metadata1_offset(){
+            return metadata1_offset;
+        }
+
+        std::vector<size_t> get_lossless_size(){
+            return lossless_size_copy;
+        }
+
+        std::vector<int> get_level_bitplane_info(){
+            return level_bitplane_info;
         }
 
         void *decompress(uchar const *lossless_data, T *data, T *dec_data, const T targetErrorBound, T lastEB) {
@@ -282,28 +306,42 @@ namespace SZ3 {
             lossless_size.clear();
             lossless_size.resize(lossless_size_size, 0);
             read(lossless_size.data(), lossless_size_size, buffer);
+            lossless_size_copy.resize(lossless_size_size, 0);
+            lossless_size_copy = lossless_size;
 
             //load dim && l2_diff
             size_t buffer_len = lossless_size[0];
-            retrieved_size += buffer_len;
+            if(!first_time_loadcfg){
+                retrieved_size += buffer_len;
+                first_time_loadcfg = true;
+                metadata_size = buffer_len;
+            }
             buffer_len -= (lossless_size_size + 1) * sizeof(size_t);
+            // std::cout << "buffer_len = " << buffer_len << std::endl;
             cmp_data_pos = lossless_data;
             read(global_dimensions.data(), N, buffer, buffer_len);
+            // std::cout << "buffer_len = " << buffer_len << std::endl;
             num_elements = std::accumulate(global_dimensions.begin(), global_dimensions.end(), (size_t) 1, std::multiplies<>());
             read(interp_dim_limit, buffer, buffer_len);
+            // std::cout << "buffer_len = " << buffer_len << std::endl;
             levelSize.clear();
             levelSize.resize(N * level_progressive, 0);
             read(levelSize.data(), levelSize.size(), buffer, buffer_len);
+            // std::cout << "buffer_len = " << buffer_len << std::endl;
+            // std::cout << "levelSize.size() = " << levelSize.size() << std::endl;
             if(load_unpred)
             {   // load unpredictable data
                 {   // mv buffer pointer to the address of unpredictable data
                     buffer = lossless_data;         // ???
+                    // std::cout << "lossless_size.size() = " << lossless_size.size() << std::endl;
                     for (int i = 0; i < lossless_size.size() - 1; i++) {
                         buffer += lossless_size[i];
                     }
                     buffer_len = lossless_size[lossless_size.size() - 1];
                     // printf("[Log] unpred size = %lld\n", (long long int)buffer_len);
                     retrieved_size += buffer_len;
+                    metadata1_size = buffer_len;
+                    metadata1_offset = buffer - lossless_data;
                 }
                 size_t rSize = lossless.getFrameConteneSize(buffer, buffer_len);
                 uchar * dcmpData = new uchar[rSize];
@@ -484,7 +522,7 @@ namespace SZ3 {
                             bool update
                             ) {
             Timer timer(true);
-            timer.start();
+            // timer.start();
             size_t compressed_size = std::accumulate(lossless_size.begin(), lossless_size.end(), (size_t) 0);
             // quant_inds.reserve(num_elements);
             l2_diff.resize(level_progressive * N * bitgroup.size(), 0);
@@ -514,6 +552,12 @@ namespace SZ3 {
                         lossless_id++;
                     }
             }
+            // std::cout << "****************" << std::endl;
+            // for (int i=0; i<size_lb.size(); i++){
+            //     std::cout << size_lb[i] << " ";
+            // }
+            // std::cout << std::endl;
+            // std::cout << "****************" << std::endl;
             // timer.stop("pre decmp -1");
 
             if(level_progressive > 0)
@@ -524,7 +568,7 @@ namespace SZ3 {
                                     data_lb, size_lb,
                                     levelSize, update);
             }
-            timer.stop("decompress_progressive");
+            // timer.stop("decompress_progressive");
             timer.start();
             quantizer.postdecompress_data();
             // timer.stop("post decmp -1");
@@ -562,17 +606,23 @@ namespace SZ3 {
                                 bool update
                                 ) {
             // size_t level_cnt_temp = level_cnt;
+            // std::cout << "lsize = " << lsize << std::endl;
             // {   // print eg.1 1 0 -> 1 1 1
-            //     // printf("-----------------------\n");
+            //     printf("-----------------------\n");
             //     for (int l = 0; l < lsize; l++) {
             //         printf("%d ", bsum[l]);
             //     }
             //     printf(" -> ");
             //     for (int l = 0; l < lsize; l++) {
             //         printf("%d ", bsum[l] + bdelta[l]);
+                    
             //     }
             //     printf("\n");
             // }
+            level_bitplane_info.resize(lsize, 0);
+            for(int l=0; l < lsize; l++){
+                level_bitplane_info[l] = bsum[l] + bdelta[l];
+            }
             Timer timer(true);
             Timer timer2(true);
             Timer timer3(true);
@@ -843,7 +893,7 @@ namespace SZ3 {
             switch (layers)
             {
             case 1:
-                ebs = {(T)(range * 1e-3)};
+                ebs = {(T)(range * 1e-6)};
                 // ebs = {(T)(1e-6)};
                 break;
             case 2:
@@ -922,6 +972,8 @@ namespace SZ3 {
         Lossless lossless;
         T *dec_data;
         double last_EB = 0;
+        std::vector<size_t> lossless_size_copy;
+        std::vector<int> level_bitplane_info;
 
     //    std::vector<int> bitgroup = {8, 8, 8, 2, 2, 2, 1, 1};
     //    std::vector<int> bitgroup = {8, 8, 8,8};
@@ -939,6 +991,10 @@ namespace SZ3 {
        std::vector<int> bitgroup = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
         std::vector<T> dec_delta;
         size_t retrieved_size = 0;
+        size_t metadata_size = 0;
+        size_t metadata1_size = 0;
+        size_t metadata1_offset = 0;
+        bool first_time_loadcfg = false;
 
         //debug only
         double max_error;

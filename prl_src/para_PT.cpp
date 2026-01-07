@@ -30,6 +30,7 @@
 #include "ompSZp_typemanager.h"
 #include "ompSZp_typemanager.c"
 #include "qoi_utils.hpp"
+#include "mpi.h"
 
 std::vector<unsigned char> readmask(const char *filepath, uint32_t & mask_file_size){
     FILE * file = fopen(filepath, "rb");
@@ -89,6 +90,26 @@ std::vector<unsigned char> readmask(const char *filepath, uint32_t & mask_file_s
 }
 
 template<class T>
+T compute_global_value_range(const T * data_vec, size_t n){
+	T global_max = 0, global_min = 0;
+	T local_max = -std::numeric_limits<T>::max();
+	T local_min = std::numeric_limits<T>::max();
+	for(int i=0; i<n; i++){
+		if(data_vec[i] > local_max) local_max = data_vec[i];
+		if(data_vec[i] < local_min)	local_min = data_vec[i];
+	}
+	if(std::is_same<T, double>::value){
+		MPI_Allreduce(&local_min, &global_min, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+		MPI_Allreduce(&local_max, &global_max, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+	}
+	else if(std::is_same<T, float>::value){
+		MPI_Allreduce(&local_min, &global_min, 1, MPI_FLOAT, MPI_MIN, MPI_COMM_WORLD);
+		MPI_Allreduce(&local_max, &global_max, 1, MPI_FLOAT, MPI_MAX, MPI_COMM_WORLD);
+	}
+	return global_max - global_min;
+}
+
+template<class T>
 T getRange(T* data, size_t num_elements) {
     T max = data[0];
     T min = data[0];
@@ -132,14 +153,14 @@ bool halfing_error_PT_uniform(const T * Vx, const T * Vy, const T * Vz, const T 
 	double max_value = 0;
 	int max_index = 0;
 	int n_variable = ebs.size();
-    double Mach_tmp_pow[8];
+	double Mach_tmp_pow[8];
     double e_Mach_tmp_pow[8];
 	for(int i=0; i<n; i++){
 		double e_V_TOT_2 = 0;
-		if(mask[i]) e_V_TOT_2 = MDR::compute_bound_x_square<double>(Vx[i], eb_Vx) + MDR::compute_bound_x_square<double>(Vy[i], eb_Vy) + MDR::compute_bound_x_square<double>(Vz[i], eb_Vz);
+		e_V_TOT_2 = mask[i] ? MDR::compute_bound_x_square<double>(Vx[i], eb_Vx) + MDR::compute_bound_x_square<double>(Vy[i], eb_Vy) + MDR::compute_bound_x_square<double>(Vz[i], eb_Vz) : 0;
 		double V_TOT_2 = Vx[i]*Vx[i] + Vy[i]*Vy[i] + Vz[i]*Vz[i];
 		double e_V_TOT = 0;
-		if(mask[i]) e_V_TOT = MDR::compute_bound_square_root_x<double>(V_TOT_2, e_V_TOT_2);
+		e_V_TOT = mask[i] ? MDR::compute_bound_square_root_x<double>(V_TOT_2, e_V_TOT_2) : 0;
 		double V_TOT = sqrt(V_TOT_2);
 		double e_T = c_1 * MDR::compute_bound_division<double>(P[i], D[i], eb_P, eb_D);
 		double Temp = P[i] / (D[i] * R);
@@ -147,8 +168,8 @@ bool halfing_error_PT_uniform(const T * Vx, const T * Vy, const T * Vz, const T 
 		double C = c_2 * sqrt(Temp);
 		double e_Mach = MDR::compute_bound_division<double>(V_TOT, C, e_V_TOT, e_C);
 		double Mach = V_TOT / C;
-		double e_Mach_tmp = (gamma-1) / 2 * MDR::compute_bound_x_square<double>(Mach, e_Mach);
-		double Mach_tmp = 1 + (gamma-1)/2 * Mach * Mach;
+		double e_Mach_tmp = ldexp(gamma - 1, -1) * MDR::compute_bound_x_square<double>(Mach, e_Mach);
+		double Mach_tmp = 1 + ldexp(gamma - 1, -1) * Mach * Mach;
 		double e_Mach_tmp_mi = 0;
         Mach_tmp_pow[0] = 1;
         e_Mach_tmp_pow[0] = 1;
@@ -170,8 +191,6 @@ bool halfing_error_PT_uniform(const T * Vx, const T * Vy, const T * Vz, const T 
 			max_index = i;
 		}
 	}
-	// std::cout << "PT : max estimated error = " << max_value << ", index = " << max_index << std::endl;
-	// estimate error bound based on maximal errors
 	if(max_value > tau){
 		auto i = max_index;
 		double estimate_error = max_value;
@@ -213,6 +232,7 @@ bool halfing_error_PT_uniform(const T * Vx, const T * Vy, const T * Vz, const T 
             }
             double Mach_tmp_mi = sqrt(Mach_tmp * Mach_tmp * Mach_tmp * Mach_tmp * Mach_tmp * Mach_tmp * Mach_tmp);
 			estimate_error = MDR::compute_bound_multiplication<double>(P[i], Mach_tmp_mi, eb_P, e_Mach_tmp_mi);
+            // if((ebs[0] / eb_Vx) > 10) break;
 		}
 		ebs[0] = eb_Vx;
 		ebs[1] = eb_Vy;
@@ -226,9 +246,10 @@ bool halfing_error_PT_uniform(const T * Vx, const T * Vy, const T * Vz, const T 
 
 template<class T>
 void reconstruct_GE(const std::string data_file_prefix, const std::string rdata_file_prefix,
+                    const std::string wdata_file_prefix,
                     double target_eb,
                     int interp_op, int direction_op,
-                    int layers){
+                    int layers, int rank, int size){
     size_t num_elements = 0;
     size_t compressed_elements = 0;
     std::vector<std::string> var_list = {"VelocityX", "VelocityY", "VelocityZ", "Pressure", "Density"};
@@ -240,7 +261,9 @@ void reconstruct_GE(const std::string data_file_prefix, const std::string rdata_
     std::vector<double> targetEBs;
     for(int i=0; i<n_variable; i++){
         auto original_data = SZ3::readfile<T>((data_file_prefix + var_list[i] + ".dat").c_str(), num_elements);
-        targetEBs.push_back(target_eb * getRange(original_data.get(), num_elements));
+        // std::cout << "target_eb * compute_global_value_range(original_data.get(), num_elements) = " << target_eb * compute_global_value_range(original_data.get(), num_elements) << std::endl; 
+        targetEBs.push_back(target_eb * compute_global_value_range(original_data.get(), num_elements));
+        // if(!rank) std::cout << var_list[i] << " value range: " << compute_global_value_range(original_data.get(), num_elements) << std::endl;
         vars_vec.push_back(std::move(original_data));
 
         auto cmp_data = SZ3::readfile<SZ3::uchar>((rdata_file_prefix + var_list[i] + "_refactored/" + var_list[i] + "_psz.bin").c_str(), compressed_elements);
@@ -249,7 +272,9 @@ void reconstruct_GE(const std::string data_file_prefix, const std::string rdata_
 
     std::vector<T> PT_ori(num_elements, 0);
     MDR::compute_PT(vars_vec[0].get(), vars_vec[1].get(), vars_vec[2].get(), vars_vec[3].get(), vars_vec[4].get(), num_elements, PT_ori.data());
-    target_eb *= getRange(PT_ori.data(), num_elements);
+    // std::cout << "PT_ori[349523] = " << PT_ori[349523] << std::endl;
+    target_eb *= compute_global_value_range(PT_ori.data(), num_elements);
+    // if(!rank) std::cout << "compute_global_value_range(PT_ori.data(), num_elements) = " << compute_global_value_range(PT_ori.data(), num_elements) << std::endl;
 
     std::string mask_file = rdata_file_prefix + "psz_mask.bin";
     uint32_t mask_file_size = 0;
@@ -278,22 +303,18 @@ void reconstruct_GE(const std::string data_file_prefix, const std::string rdata_
     std::vector<double> error_est_PT(num_elements);
     double max_est_error = 0, max_act_error = 0;
 
-    SZ3::Timer timer(true);
+    double local_elapsed_time;
 
+    local_elapsed_time = -MPI_Wtime();
     while((!tolerance_met) && (iter < max_iter)){
         iter ++;
         // std::cout << "iter " << iter << std::endl;
-        // std::cout << "iter #" << iter << ", ebs:" << std::endl;
-        // for(int j=0; j<n_variable; j++){
-        //     std::cout << targetEBs[j] << " ";
-        // }
-        // std::cout << std::endl;
         for(int i=0; i<n_variable; i++){
             std::vector<double> tmpEBs = {targetEBs[i]};
             auto reconstructed_data = reconstructors[i].progressive_reconstruct(vars_cmp[i].get(), vars_vec[i].get(), tmpEBs);
             total_retrieved_size[i] = reconstructors[i].get_retrieved_size();
             memcpy(reconstructed_vars[i].data(), reconstructed_data, num_elements*sizeof(T));
-            if(i < 3){
+            if (i < 3){
                 for(int j=0; j<num_elements; j++){
                     if(!mask[j]) reconstructed_vars[i][j] = 0;
                 }
@@ -305,36 +326,132 @@ void reconstruct_GE(const std::string data_file_prefix, const std::string rdata_
         T * P_dec = reconstructed_vars[3].data();
         T * D_dec = reconstructed_vars[4].data();
         tolerance_met = halfing_error_PT_uniform(Vx_dec, Vy_dec, Vz_dec, P_dec, D_dec, num_elements, mask, target_eb, targetEBs, PT_ori, error_est_PT, error_PT);
+        // std::cout << "error_PT[349523] = " << error_PT[349523] << std::endl;
         max_act_error = print_max_abs(error_PT);
+        // std::cout << "error_est_PT[349523] = " << error_est_PT[349523] << std::endl;
         max_est_error = print_max_abs(error_est_PT);  
     }
-    double elapsed_time = timer.stop();
-    std::cout << "requested_error = " << target_eb << std::endl;
-	std::cout << "max_est_error = " << max_est_error << std::endl;
-	std::cout << "max_act_error = " << max_act_error << std::endl;
-	std::cout << "iter = " << iter << std::endl;
-    size_t total_size = mask_file_size + std::accumulate(total_retrieved_size.begin(), total_retrieved_size.end(), size_t(0));
-	double cr = n_variable * num_elements * sizeof(T) * 1.0 / total_size;
-	std::cout << "each retrieved size:";
+    local_elapsed_time += MPI_Wtime();
+    double global_elapsed_time = 0;
+    MPI_Reduce(&local_elapsed_time, &global_elapsed_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+
+    int global_max_iter = 0;
+    MPI_Reduce(&iter, &global_max_iter, 1, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
+    if(!rank) std::cout << "max_iter = " << global_max_iter << std::endl;
+
+    if(!rank) std::cout << "requested_error = " << target_eb << std::endl;
+
+    double global_max_est_error = 0;
+    MPI_Reduce(&max_est_error, &global_max_est_error, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+    if(!rank) std::cout << "max_est_error = " << global_max_est_error << std::endl;
+	
+    double global_max_act_error = 0;
+    MPI_Reduce(&max_act_error, &global_max_act_error, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+	if(!rank) std::cout << "max_act_error = " << global_max_act_error << std::endl;
+
+    unsigned long long local_total_size = std::accumulate(total_retrieved_size.begin(), total_retrieved_size.end(), 0ULL) + mask_file_size;
+
+    unsigned long long int global_total_num = 0;
+    MPI_Reduce(&num_elements, &global_total_num, 1, MPI_UNSIGNED_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+	unsigned long long int global_total_retrieved = 0;
+	MPI_Reduce(&local_total_size, &global_total_retrieved, 1, MPI_UNSIGNED_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+	if(!rank) printf("Aggregated bitrate = %.10f, retrieved_size = %ld, total_num_elements = %ld\n", 8*global_total_retrieved * 1.0 / (global_total_num * n_variable), global_total_retrieved, global_total_num);
+	if(!rank) printf("elapsed_time = %.6f\n", global_elapsed_time);
+
     for(int i=0; i<n_variable; i++){
-        std::cout << total_retrieved_size[i] << ", ";
+        auto metadata_size = reconstructors[i].get_metadata_size();
+        auto metadata1_size = reconstructors[i].get_metadata1_size();
+        auto metadata1_offset = reconstructors[i].get_metadata1_offset();
+        auto lossless_size = reconstructors[i].get_lossless_size();
+        auto level_bitplane_info = reconstructors[i].get_level_bitplane_info();
+        // if(!rank && !i) std::cout << "retrieved_size = " << total_retrieved_size[i] << std::endl;
+        // if(!rank && !i) std::cout << "metadata_size = " << metadata_size << ", metadata1_size = " << metadata1_size << ", metadata1_offset = " << metadata1_offset << std::endl;
+
+        unsigned char * metadata_ptr = vars_cmp[i].get();
+        unsigned char * metadata1_ptr = vars_cmp[i].get() + metadata1_offset;
+        unsigned char * level_bitplane_ptr = vars_cmp[i].get() + metadata_size;
+
+        unsigned char * fetched_data = (unsigned char *) malloc(total_retrieved_size[i]);
+        unsigned char * src_ptr = metadata_ptr;
+        unsigned char * dst_ptr = fetched_data;
+        // if(!rank && !i) std::cout << "Line: 414 memcpy(dst_ptr, src_ptr, metadata_size);" << std::endl;
+        memcpy(dst_ptr, src_ptr, metadata_size);
+        dst_ptr += metadata_size;
+        src_ptr += metadata_size;
+        for (int j=0; j < level_bitplane_info.size(); j++){
+            for(int k=31; k >= 0; k--){
+                if(31 - k < level_bitplane_info[j]){
+                    memcpy(dst_ptr, src_ptr, lossless_size[1 + j*32 + k]);
+                    dst_ptr += lossless_size[1 + j*32 + k];
+                }
+                src_ptr += lossless_size[1 + j*32 + k];
+            }
+        }
+        src_ptr = metadata1_ptr;
+        memcpy(dst_ptr, src_ptr, metadata1_size);
+        dst_ptr += metadata1_size;
+
+        unsigned long long int fetched_data_offset = 0;
+        unsigned long long int fetched_data_buffer;
+
+        for(int j=0; j<size; j++){
+            if(j == rank){
+                if(j != 0) {
+                    MPI_Recv(&fetched_data_offset, 1, MPI_UNSIGNED_LONG_LONG, j-1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                }
+
+                fetched_data_buffer = fetched_data_offset + total_retrieved_size[i];
+
+                if(j != size - 1) {
+                    MPI_Send(&fetched_data_buffer, 1, MPI_UNSIGNED_LONG_LONG, j+1, 0, MPI_COMM_WORLD);
+				}
+            }
+        }
+        MPI_File fetched_data_file;
+		std::string fetched_data_filename = wdata_file_prefix + var_list[i] + "_aggregated_fetched_data_psz.bin";
+        MPI_File_open(MPI_COMM_WORLD, fetched_data_filename.c_str(), MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &fetched_data_file);
+        MPI_File_write_at(fetched_data_file, fetched_data_offset, fetched_data, total_retrieved_size[i], MPI_SIGNED_CHAR, MPI_STATUS_IGNORE);
+		MPI_File_close(&fetched_data_file);
+        free(fetched_data);
+        if(i == 0){
+            // mask file size already known
+			unsigned long long int mask_offset = 0;
+			unsigned long long int mask_buffer; 
+			for(int j=0; j<size; j++){
+				if(j == rank){
+					if(j != 0) {
+						MPI_Recv(&mask_offset, 1, MPI_UNSIGNED_LONG_LONG, j-1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+					}
+					mask_buffer = mask_offset + mask_file_size;
+					if(j != size - 1) {
+						MPI_Send(&mask_buffer, 1, MPI_UNSIGNED_LONG_LONG, j+1, 0, MPI_COMM_WORLD);
+					}
+				}
+			}
+			size_t mask_num_char = 0;
+            auto mask_data = SZ3::readfile<unsigned char>(mask_file.c_str(), mask_num_char);
+			MPI_File mask_file;
+			std::string mask_filename = wdata_file_prefix + "aggregated_psz_mask.bin";
+			MPI_File_open(MPI_COMM_WORLD, mask_filename.c_str(), MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &mask_file);
+			MPI_File_write_at(mask_file, mask_offset, mask_data.get(), mask_file_size, MPI_SIGNED_CHAR, MPI_STATUS_IGNORE);
+			MPI_File_close(&mask_file);
+        }
     }
-	std::cout << "mask_file_size = " << mask_file_size << std::endl;
-    std::cout << "aggregated cr = " << cr << std::endl;
-	std::cout << "bitrate = " << ((sizeof(T) * 8) / cr) << std::endl;
-    std::cout << "elapsed_time = " << elapsed_time << std::endl;
     return;
 }
 
 template<class T>
-void QoI_decompress_preprocess(const std::string data_name, const std::string data_prefix_path,
+void QoI_decompress_preprocess(const std::string data_name, const std::string data_prefix_path, const std::string output_path,
                                 double target_eb, 
                                 int interp_op, int direction_op,
-                                int layers){
+                                int layers, int rank, int size){
     std::string data_file_prefix = data_prefix_path + "/data/";
     std::string rdata_file_prefix = data_prefix_path + "/refactor/";
+    int exp = static_cast<int>(std::round(std::log10(target_eb)));
+	std::string wdata_file_prefix = output_path + "/1e" + std::to_string(exp) + "/";
+    // std::cout << "wdata_file_prefix = " << wdata_file_prefix << std::endl;
     if (std::strcmp(data_name.c_str(), "GE") == 0) {
-        reconstruct_GE<T>(data_file_prefix, rdata_file_prefix, target_eb, interp_op, direction_op, layers);
+        reconstruct_GE<T>(data_file_prefix, rdata_file_prefix, wdata_file_prefix, target_eb, interp_op, direction_op, layers, rank, size);
     }
     else {
         std::cout << "No PT for " << data_name << " dataset." << std::endl;
@@ -343,15 +460,22 @@ void QoI_decompress_preprocess(const std::string data_name, const std::string da
 }
 
 void usage(char* cmd) {
-    std::cout << "halfing_PT usage: " << cmd <<
-                  " data_name data_path - [dataType: f/d] requested_eb"
+    std::cout << "para_Vtot usage: " << cmd <<
+                  " data_name data_path - [dataType: f/d] requested_eb output_path"
                   << std::endl
                   << "example: " << cmd <<
-                  " GE ./dataset/GE/ -d 0.1" << std::endl;
+                  " JHTDB ./dataset/JHTDB -f 0.1 PSZ/" << std::endl;
 }
 
 
 int main(int argc, char **argv) {
+    MPI_Init(&argc, &argv);
+    int rank, size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    std::ostringstream oss;
+    oss << rank;
+
     if (argc < 2) {
         usage(argv[0]);
         return 0;
@@ -360,7 +484,10 @@ int main(int argc, char **argv) {
     int argv_id = 1;
     std::string data_name = argv[argv_id++];
     std::string data_path = argv[argv_id++];
-    double tau = atof(argv[4]);
+    argv_id++; // data type
+    data_path += oss.str();
+    double tau = atof(argv[argv_id++]);
+    std::string output_path = argv[argv_id++];
 
 
     int interp_op = 1; // linear:0 cubic:1
@@ -369,14 +496,14 @@ int main(int argc, char **argv) {
 
     if((argv[3] + 1)[0] == 'f') {
         layers = 1;
-        QoI_decompress_preprocess<float>(data_name, data_path, tau, interp_op, direction_op, layers);
+        QoI_decompress_preprocess<float>(data_name, data_path, output_path, tau, interp_op, direction_op, layers, rank, size);
     } // precision: 1e-6
     else if((argv[3] + 1)[0] == 'd') {
         layers = 9;
-        QoI_decompress_preprocess<double>(data_name, data_path, tau, interp_op, direction_op, layers);
+        QoI_decompress_preprocess<double>(data_name, data_path, output_path, tau, interp_op, direction_op, layers, rank, size);
     } // precision: 1e-9
 
     
-    std::cout << std::endl;
+    MPI_Finalize();
     return 0;
 }
