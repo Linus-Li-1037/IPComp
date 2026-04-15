@@ -1,9 +1,11 @@
 find_package(MPI REQUIRED)
 
 set(exes 
-        para_refactor
-        para_Vtot
-        para_PT
+        # para_refactor
+        # para_Vtot
+        # para_PT
+        para_IPComp_refactor
+        para_IPComp_reconstructor
         )
 foreach (EXE IN LISTS exes)
     message(STATUS "Target = ${EXE}")

@@ -207,6 +207,9 @@ namespace SZ3 {
             printf("[Log] Total Retrieved size = %lu Bytes (%.3f%% original data, bitrate = %.3f bps)\n", retrieved_size, retrieved_size * 100.0 / (num_elements * sizeof(T)), retrieved_size * 8.0 * sizeof(T) / (num_elements * sizeof(T)) );
             printf("Compression Ratio = %.5f\n", (num_elements * sizeof(T) * 1.0) / retrieved_size);
             printf("Bitrate = %.5f\n", retrieved_size * 8.0 / num_elements);
+            double psnr, nrmse;
+            SZ3::verify<T>(data, dec_data, num_elements, psnr, nrmse);
+            printf("PSNR = %.5f\n", psnr);
             last_rs = retrieved_size;
             // std::cout << "-------- compression ratio = " << (num_elements * sizeof(T)) * 1.0/ retrieved_size  << " --------" << std::endl;
             
@@ -224,6 +227,9 @@ namespace SZ3 {
                 printf("[Log] Retrieved size = %lu Bytes (%.3f%% original data, bitrate = %.3f bps)\n", retrieved_size, retrieved_size * 100.0 / (num_elements * sizeof(T)), retrieved_size * 8.0 * sizeof(T) / (num_elements * sizeof(T)) );
                 printf("Compression Ratio = %.5f\n", (num_elements * sizeof(T) * 1.0) / retrieved_size);
                 printf("Bitrate = %.5f\n", retrieved_size * 8.0 / num_elements);
+                double psnr, nrmse;
+                SZ3::verify<T>(data, dec_data, num_elements, psnr, nrmse);
+                printf("PSNR = %.5f\n", psnr);
                 last_rs = retrieved_size;
                 // std::cout << "-------- compression ratio = " << (num_elements * sizeof(T)) * 1.0 / retrieved_size << " --------" << std::endl;
             }
@@ -834,7 +840,7 @@ namespace SZ3 {
                 }
                 for (int d = 0; d < N; d++) {
                     timer3.start();
-
+                    // std::cout << "level = " << level << std::endl;
                     block_interpolation(data, data, global_begin, global_end, &SZProgressiveMQuant::quantize,
                                         interpolators[interpolator_id], directions[d], stride, true);
                     totalTime3 += timer3.stop();
@@ -856,7 +862,7 @@ namespace SZ3 {
 
 //            quant_inds.clear();
             // std::cout << "total element = " << num_elements << ", quantization element = " << quant_inds_total << std::endl;
-            std::cout << "[Log] Compression time = " << timer.stop() << " sec" << std::endl;
+            // std::cout << "[Log] Compression time = " << timer.stop() << " sec" << std::endl;
             // std::cout << "encoding time = " << totalTime << std::endl;
             // std::cout << "decomposition time = " << totalTime3 << std::endl;
             assert(quant_inds_total >= num_elements);
@@ -895,6 +901,7 @@ namespace SZ3 {
             case 1:
                 ebs = {(T)(range * 1e-6)};
                 // ebs = {(T)(1e-6)};
+                // ebs = {(range > 1) ? (T)(1e-8) : (T)(range * 1e-8)};
                 break;
             case 2:
                 ebs = {(T)(range * 1e-3), (T)(range * 1e-6)};
@@ -914,7 +921,8 @@ namespace SZ3 {
                 break;
             case 9:
                 ebs = {(T)(range * 1e-9)};
-                // ebs = {(T)(1e-6)};
+                // ebs = {(T)(1e-9)};
+                // ebs = {(range > 1) ? (T)(1e-18) : (T)(range * 1e-18)};
                 break;
             case 11:
                 ebs = {(T)(range * 1e-9)};
@@ -940,6 +948,10 @@ namespace SZ3 {
                 break;
             }
             layers = ebs.size();
+        }
+
+        T get_range(){
+            return range;
         }
 
     private:
@@ -1346,6 +1358,17 @@ namespace SZ3 {
 
             auto dims = direction.first;
             auto s = direction.second;
+            // printf("dims: ");
+            // for (int i = 0; i < N; i++) {
+            //     printf("%d ", dims[i]);
+            // }
+            // printf("\n");
+
+            // printf("stride: ");
+            // for (int i = 0; i < N - 1; i++) {
+            //     printf("%d ", s[i]);
+            // }
+            // printf("\n");
 
             if (N == 1) {
                 block_interpolation_1d(data, pred_data, begin[0], end[0], stride, interp_func, func);

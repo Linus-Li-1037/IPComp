@@ -9,6 +9,8 @@ set(exes
         halfing_mu
         halfing_xixj
         halfing_Vtot2
+        refactor
+        reconstructor
         )
 foreach (EXE IN LISTS exes)
     message(STATUS "Target = ${EXE}")
