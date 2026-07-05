@@ -28,6 +28,7 @@
 #include <type_traits>
 #include <sstream>
 
+bool write_output = false;
 std::string output_path;
 
 template<uint N, typename T, class ... Dims>
@@ -105,7 +106,7 @@ T *interp_decompress(const char *path, std::vector<double> & target_ebs, int int
     SZ3::verify<T>(data.get(), dec_data, num_elements, psnr, nrmse);
     printf("PSNR = %.5f\n", psnr);
     last_rs = retrieved_size;
-    SZ3::writefile(output_path.c_str(), dec_data, num);
+    if(write_output) SZ3::writefile(output_path.c_str(), dec_data, num);
 }
     return dec_data;
 }
@@ -170,7 +171,10 @@ int main(int argc, char **argv) {
     }
 
     std::string rdata_path = std::string(argv[argv_id++]);
-    output_path = std::string(argv[argv_id++]);
+    if(argv_id < argc) {
+        output_path = std::string(argv[argv_id++]);
+        write_output = true;
+    }
 
     int interp_op = 1; // linear:0 cubic:1
     int direction_op = 0; // dimension high -> low
