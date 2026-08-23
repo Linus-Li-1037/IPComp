@@ -291,7 +291,8 @@ void reconstruct_GE(const std::string data_file_prefix, const std::string rdata_
                 SZ3::Lossless_zstd(),
                 dims, interp_op, direction_op, 50000, layers, 0
         );
-        sz.setupLayers(vars_vec[i].get());
+        sz.setupLayersFromRange(
+            compute_global_value_range(vars_vec[i].get(), num_elements));
         reconstructors.push_back(sz);
     }
 

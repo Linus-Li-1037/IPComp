@@ -473,7 +473,7 @@ namespace SZ3 {
                 // std::cout << "[Log] skipping layer 0" << std::endl;
             }
             lossless_data_pos += compressed_size;
-            {
+            if (ebs.size() > 1) {
                 T *residual_data = new T[num_elements];
                 for (int layer = 1; layer < ebs.size(); layer++){
                     
@@ -654,7 +654,9 @@ namespace SZ3 {
 
             ska::unordered_map<std::string, double> result;
             dec_delta.clear();
-            dec_delta.resize(num_elements, 0);
+            if (update) {
+                dec_delta.resize(num_elements, 0);
+            }
 
             timer.start();
             for (uint level = level_progressive; level > 0; level--) {
@@ -678,7 +680,14 @@ namespace SZ3 {
                         last_bit[lid].resize(compressed_bit_package_size, 0);
                         second_last_bit[lid].resize(compressed_bit_package_size, 0);
 
-                        uchar* loaded_bits = static_cast<uchar*>(::operator new(compressed_bit_package_size * 32, std::align_val_t(256)));
+                        // Only bitplanes [0, bg_end) are addressed below.  Allocating
+                        // all 32 planes made the single-frame MPI memory peak several
+                        // times larger than the data actually requested.
+                        const size_t loaded_plane_count =
+                            static_cast<size_t>(std::max(1, bg_end));
+                        uchar* loaded_bits = static_cast<uchar*>(::operator new(
+                            compressed_bit_package_size * loaded_plane_count,
+                            std::align_val_t(256)));
 
                         if (bdelta[lid] > 0){
                             for (int b = bsum[lid]; b < bg_end; b++) {
@@ -796,7 +805,7 @@ namespace SZ3 {
             
 
             T eb = quantizer.get_eb();
-            std::cout << "[Log] Absolute error bound = " << eb << std::endl;
+            // std::cout << "[Log] Absolute error bound = " << eb << std::endl;
 //            quantizer.set_eb(eb * eb_ratio);
             l2_diff.resize(level_progressive * N * bitgroup.size(), 0);
 
@@ -895,6 +904,11 @@ namespace SZ3 {
         size_t num_elements;
         void setupLayers(T *data){
             getRange(data);
+            setupLayersFromRange(range);
+        }
+
+        void setupLayersFromRange(T supplied_range){
+            range = supplied_range;
             // printf("Value Range = %.4f\n", range);
             switch (layers)
             {
@@ -952,6 +966,21 @@ namespace SZ3 {
 
         T get_range(){
             return range;
+        }
+
+        // The legacy drivers copy this codec by value, so ownership cannot be
+        // changed globally without breaking their shallow-copy contract.  Long-lived
+        // frame loops can explicitly release the two constructor workspaces once a
+        // codec instance is no longer needed.
+        void release_workspace() {
+            if (dec_data) {
+                ::operator delete(dec_data, std::align_val_t(256));
+                dec_data = nullptr;
+            }
+            if (quant_inds) {
+                ::operator delete(quant_inds, std::align_val_t(256));
+                quant_inds = nullptr;
+            }
         }
 
     private:
@@ -1070,7 +1099,7 @@ namespace SZ3 {
 
             }
 
-            delete[] compressed_data;
+            ::operator delete(compressed_data, std::align_val_t(256));
             timer2.start();
             
             // add_to_quant(quant_inds, last_bit[lid], bitshift);
@@ -1882,4 +1911,3 @@ namespace SZ3 {
 
 
 #endif
-

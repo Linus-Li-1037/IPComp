@@ -140,7 +140,7 @@ double interp_decompress(const char *path, std::string rdata_path, std::vector<d
 
 void usage(char* cmd) {
     std::cout << "IPComp usage: " << cmd <<
-                  " data_file -[dataType: f/d] -num_dim dim0 .. dimn -bound_num bound1 bound2 .. boundn refactored_path"
+                  " data_file -[dataType: f/d] -num_dim dim0 .. dimn -bound_num bound1 bound2 .. boundn refactored_path [Optional: Reconstructed data path]"
                   << std::endl
                   << "example: " << cmd <<
                   " density.d64 -d -3 256 384 384 -3 1e-2 1e-3 1e-4 (-cubic)" << std::endl;

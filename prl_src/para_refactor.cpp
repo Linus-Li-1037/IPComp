@@ -17,6 +17,20 @@
 #include "ompSZp_typemanager.c"
 #include "mpi.h"
 
+template<class T>
+T compute_global_value_range(const T* data, size_t n) {
+    T local_min = data[0], local_max = data[0];
+    for (size_t i = 1; i < n; ++i) {
+        if (data[i] < local_min) local_min = data[i];
+        if (data[i] > local_max) local_max = data[i];
+    }
+    T global_min = 0, global_max = 0;
+    const MPI_Datatype type = std::is_same<T, double>::value ? MPI_DOUBLE : MPI_FLOAT;
+    MPI_Allreduce(&local_min, &global_min, 1, type, MPI_MIN, MPI_COMM_WORLD);
+    MPI_Allreduce(&local_max, &global_max, 1, type, MPI_MAX, MPI_COMM_WORLD);
+    return global_max - global_min;
+}
+
 template <class T>
 void writemask(const char *filepath, T *data, size_t num_elements) {
     unsigned int bit_count = 1;
@@ -86,7 +100,7 @@ SZ3::uchar *interp_compress(std::unique_ptr<T[]>& data, int interp_op, int direc
                 dims, interp_op, direction_op, 50000, layers, 0
         );
         SZ3::uchar *lossless_data = new SZ3::uchar[size_t((sz.num_elements < 1000000 ? 100 : 2.0) * sz.num_elements) * sizeof(T)]; //?
-        sz.setupLayers(data.get());
+        sz.setupLayersFromRange(compute_global_value_range(data.get(), num));
         SZ3::Timer timer_compress(true);
         // timer_compress.start();
         compressed = sz.compress(data.get(), total_compressed_size, lossless_data);

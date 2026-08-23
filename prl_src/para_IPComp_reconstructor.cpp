@@ -86,7 +86,7 @@ void interp_decompress(std::string path, std::string compressed_path, std::strin
             SZ3::Lossless_zstd(),
             dims, interp_op, direction_op, 50000, layers, 0
     );
-    sz.setupLayers(data.get());
+    sz.setupLayersFromRange(value_range);
 
     size_t compressed_num = 0;
     auto compressed = SZ3::readfile<SZ3::uchar>(compressed_path.c_str(), compressed_num);

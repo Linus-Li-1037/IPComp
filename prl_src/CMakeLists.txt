@@ -6,6 +6,8 @@ set(exes
         # para_PT
         para_IPComp_refactor
         para_IPComp_reconstructor
+        para_IPComp_refactor_fun3d
+        para_IPComp_reconstructor_fun3d
         )
 foreach (EXE IN LISTS exes)
     message(STATUS "Target = ${EXE}")
@@ -20,7 +22,9 @@ foreach (EXE IN LISTS exes)
     #     # -mavx512f
     # #     # -ftree-vectorize
     # )
-    add_definitions(-DSZ3_DEBUG_TIMINGS=1)
+    if(NOT EXE MATCHES "_fun3d$")
+        target_compile_definitions(${EXE} PRIVATE SZ3_DEBUG_TIMINGS=1)
+    endif()
 endforeach ()
 #install(FILES ${PROJECT_SOURCE_DIR}/test/testfloat_8_8_128.dat DESTINATION ${CMAKE_INSTALL_FULL_BINDIR})
 
