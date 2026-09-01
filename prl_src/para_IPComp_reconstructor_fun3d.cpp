@@ -12,8 +12,11 @@
 
 #include "FUN3DIPComp.hpp"
 
+// `stream` is the block's single component, already read.  The per-frame path read the
+// whole file up front for the same reason: IPComp's layer index lives inside the stream,
+// so the codec fetches layers within bytes it already holds.
 template <class T>
-bool reconstruct_frame(const std::string& input,
+bool reconstruct_frame(std::vector<uint8_t>& stream,
                        const IPCompFUN3D::FrameInfo& info,
                        const std::vector<double>& relative_tolerances,
                        MPI_Comm comm,
@@ -28,9 +31,7 @@ bool reconstruct_frame(const std::string& input,
                 SZ3::BypassEncoder<int>(), SZ3::Lossless_zstd(), dimensions,
                 1, 0, 50000, info.layers, 0);
 
-    size_t compressed_size = 0;
-    auto compressed = SZ3::readfile<SZ3::uchar>(input.c_str(), compressed_size);
-    if (!compressed || compressed_size == 0) return false;
+    if (stream.empty()) return false;
 
     // Restore the encoder's layer ladder directly from its local range.  This avoids
     // allocating an original-sized dummy field on every MPI rank.
@@ -40,7 +41,8 @@ bool reconstruct_frame(const std::string& input,
             relative_tolerances[i] * info.value_range};
         MPI_Barrier(comm);
         const double start = MPI_Wtime();
-        codec.progressive_reconstruct(compressed.get(), nullptr, target);
+        codec.progressive_reconstruct(
+            reinterpret_cast<SZ3::uchar*>(stream.data()), nullptr, target);
         reconstruct_times[i] += MPI_Wtime() - start;
         retrieved_sizes[i] += codec.get_retrieved_size() +
                               sizeof(IPCompFUN3D::FrameInfo);
@@ -87,18 +89,50 @@ int run(int argc, char** argv, MPI_Comm comm) {
     std::vector<double> max_reconstruct_time(num_tolerances, 0);
     unsigned long long local_num_elements = 0;
 
+    // One file per rank: the block for (timestep, field) is found through the directory
+    // at the front of it, so the read path needs no MPI at all.
+    IPCompFUN3D::SingleFileArchive archive(
+        IPCompFUN3D::single_file_archive_name(input_root, np, rank));
+    if (!archive.open()) return 1;
+    if (archive.num_fields() != variables.size() ||
+        archive.num_timesteps() < static_cast<uint64_t>(num_timesteps)) {
+        fprintf(stderr,
+                "ERROR: rank %d asked for %d timesteps of %zu fields, %s holds "
+                "%llu timesteps of %llu fields\n",
+                rank, num_timesteps, variables.size(), archive.path().c_str(),
+                static_cast<unsigned long long>(archive.num_timesteps()),
+                static_cast<unsigned long long>(archive.num_fields()));
+        return 1;
+    }
+    if (archive.header().element_size != sizeof(T)) {
+        fprintf(stderr,
+                "ERROR: %s was compressed from %u-byte values, this run uses %zu "
+                "(f / d mismatch)\n",
+                archive.path().c_str(), archive.header().element_size, sizeof(T));
+        return 1;
+    }
+
     for (int timestep = 0; timestep < num_timesteps; ++timestep) {
-        for (const auto& variable : variables) {
-            const std::string input = IPCompFUN3D::frame_base(
-                input_root, variable, timestep, np, rank);
-            size_t info_count = 0;
-            auto info = SZ3::readfile<IPCompFUN3D::FrameInfo>(
-                (input + ".info").c_str(), info_count);
-            if (!info || info_count != 1) return 1;
+        for (size_t field = 0; field < variables.size(); ++field) {
+            std::vector<uint8_t> metadata;
+            std::vector<uint8_t> stream;
+            if (!archive.read_block(
+                    IPCompFUN3D::frame_block_index(timestep, field, variables.size()),
+                    metadata, stream)) {
+                return 1;
+            }
+            if (metadata.size() < sizeof(IPCompFUN3D::FrameInfo)) {
+                fprintf(stderr, "ERROR: rank %d read a block of %s with no FrameInfo\n",
+                        rank, archive.path().c_str());
+                return 1;
+            }
+            IPCompFUN3D::FrameInfo info;
+            memcpy(&info, metadata.data(), sizeof(info));
+
             if (!reconstruct_frame<T>(
-                    input, info[0], tolerances, comm, local_retrieved,
+                    stream, info, tolerances, comm, local_retrieved,
                     local_reconstruct_time)) return 1;
-            local_num_elements += info[0].num_elements;
+            local_num_elements += info.num_elements;
         }
     }
 

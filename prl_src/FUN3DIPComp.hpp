@@ -12,7 +12,15 @@
 
 #include <SZ3/utils/Iterator.hpp>
 
+#include "SingleFileArchive.hpp"
+
 namespace IPCompFUN3D {
+
+inline uint64_t frame_block_index(int timestep, size_t field, size_t num_fields) {
+    return single_file_block_index(static_cast<uint64_t>(timestep),
+                                  static_cast<uint64_t>(field),
+                                  static_cast<uint64_t>(num_fields));
+}
 
 struct FrameInfo {
     uint64_t num_elements = 0;

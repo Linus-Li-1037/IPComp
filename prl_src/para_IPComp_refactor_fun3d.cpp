@@ -12,9 +12,12 @@
 
 #include "FUN3DIPComp.hpp"
 
+// Compresses one frame and buffers the stream as the block's single component.  The
+// bytes are copied into the archive before the workspace is freed, so the codec's
+// scratch allocation is not held any longer than it is now.
 template <class T>
 bool refactor_frame(const std::vector<T>& data, int layers, double value_range,
-                    const std::string& output, bool write_output,
+                    IPCompFUN3D::SingleFileWriter& writer,
                     size_t& compressed_size, double& compression_time) {
     using Codec = SZ3::SZProgressiveMQuant<
         T, 1, SZ3::LinearQuantizer2<T>, SZ3::BypassEncoder<int>,
@@ -33,9 +36,8 @@ bool refactor_frame(const std::vector<T>& data, int layers, double value_range,
     SZ3::uchar* compressed = codec.compress(
         const_cast<T*>(data.data()), compressed_size, workspace);
     compression_time = MPI_Wtime() - start;
-    if (write_output) {
-        SZ3::writefile(output.c_str(), compressed, compressed_size);
-    }
+    writer.begin_block();
+    writer.add_component(compressed, compressed_size);
     codec.release_workspace();
     delete[] workspace;
     return true;
@@ -85,11 +87,23 @@ int run(int argc, char** argv, MPI_Comm comm) {
          !IPCompFUN3D::copy_metadata(data_dir, output_root, subdomain,
                                      local_partition))) return 1;
 
-    unsigned long long local_compressed_size = 0;
+    // One file per rank holding every (timestep, field) it owns, instead of a stream and
+    // an info file per frame.  write_mode 0 keeps it a dry run: the block is still
+    // assembled and measured, but no file is created.
+    IPCompFUN3D::SingleFileWriter writer(
+        write_mode == 1
+            ? IPCompFUN3D::single_file_archive_name(output_root, np, rank)
+            : std::string(),
+        static_cast<uint64_t>(num_timesteps),
+        static_cast<uint64_t>(variables.size()), sizeof(T));
+    if (!writer.open()) return 1;
+
+    unsigned long long local_compressed_size = writer.prologue_size();
     unsigned long long local_num_elements = 0;
     double local_compression_time = 0;
     for (int timestep = 0; timestep < num_timesteps; ++timestep) {
-        for (const auto& variable : variables) {
+        for (size_t field = 0; field < variables.size(); ++field) {
+            const std::string& variable = variables[field];
             std::vector<T> local;
             const std::string input = data_dir + variable + ".dat." +
                                       std::to_string(timestep);
@@ -99,44 +113,56 @@ int run(int argc, char** argv, MPI_Comm comm) {
                 return 1;
             }
             const double range = IPCompFUN3D::global_range(local, comm);
-            const std::string output = IPCompFUN3D::frame_base(
-                output_root, variable, timestep, np, rank);
 
             MPI_Barrier(comm);
             size_t frame_size = 0;
             double frame_time = 0;
-            if (!refactor_frame(local, layers, range, output, write_mode == 1,
-                                frame_size, frame_time)) return 1;
-            if (write_mode == 1) {
-                IPCompFUN3D::FrameInfo info;
-                info.num_elements = local.size();
-                info.value_range = range;
-                // Kept in the on-disk struct for compatibility; all new streams use
-                // the same global range for both fields.
-                info.local_value_range = range;
-                info.layers = layers;
-                SZ3::writefile((output + ".info").c_str(), &info, 1);
+            if (!refactor_frame(local, layers, range, writer, frame_size,
+                                frame_time)) return 1;
+
+            IPCompFUN3D::FrameInfo info;
+            info.num_elements = local.size();
+            info.value_range = range;
+            // Kept in the on-disk struct for compatibility; all new streams use
+            // the same global range for both fields.
+            info.local_value_range = range;
+            info.layers = layers;
+
+            // FrameInfo is the block's metadata, so a frame is one self-contained
+            // object and the reader needs no sidecar file.
+            size_t block_size = 0;
+            if (!writer.commit_block(
+                    IPCompFUN3D::frame_block_index(timestep, field, variables.size()),
+                    &info, sizeof(info), block_size)) {
+                return 1;
             }
-            local_compressed_size += frame_size + sizeof(IPCompFUN3D::FrameInfo);
+            local_compressed_size += block_size;
             local_num_elements += local.size();
             local_compression_time += frame_time;
         }
     }
+    if (!writer.close()) return 1;
 
     unsigned long long total_compressed_size = 0;
     unsigned long long total_num_elements = 0;
     double max_compression_time = 0;
+    double local_write_time = writer.io_time();
+    double max_write_time = 0;
     MPI_Reduce(&local_compressed_size, &total_compressed_size, 1,
                MPI_UNSIGNED_LONG_LONG, MPI_SUM, 0, comm);
     MPI_Reduce(&local_num_elements, &total_num_elements, 1,
                MPI_UNSIGNED_LONG_LONG, MPI_SUM, 0, comm);
     MPI_Reduce(&local_compression_time, &max_compression_time, 1,
                MPI_DOUBLE, MPI_MAX, 0, comm);
+    MPI_Reduce(&local_write_time, &max_write_time, 1,
+               MPI_DOUBLE, MPI_MAX, 0, comm);
     if (rank == 0) {
         printf("IPComp ranks=%d timesteps=%d fields=%zu preprocessing=0.000000 "
-               "compression=%.6f "
+               "compression=%.6f write=%.6f files=%d blocks_per_file=%d "
                "total_compressed_size=%llu aggregate_CR=%.4f\n",
                np, num_timesteps, variables.size(), max_compression_time,
+               max_write_time, write_mode == 1 ? np : 0,
+               num_timesteps * static_cast<int>(variables.size()),
                total_compressed_size,
                static_cast<double>(total_num_elements) * sizeof(T) /
                    total_compressed_size);
