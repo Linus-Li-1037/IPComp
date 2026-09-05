@@ -8,6 +8,8 @@ set(exes
         para_IPComp_reconstructor
         para_IPComp_refactor_fun3d
         para_IPComp_reconstructor_fun3d
+        para_IPComp_retrieve_fun3d
+        para_IPComp_reconstruct_retrieved_fun3d
         )
 foreach (EXE IN LISTS exes)
     message(STATUS "Target = ${EXE}")

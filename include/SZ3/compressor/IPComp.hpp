@@ -237,12 +237,19 @@ namespace SZ3 {
         }
 
         T *progressive_reconstruct(uchar const *lossless_data, T *data, std::vector<double> &targetEBs) {
+            access_base = lossless_data;
             // std::cout << "decompress(lossless_data, data, dec_data, targetEB[0], last_EB);" << std::endl;
             decompress(lossless_data, data, dec_data, targetEBs[0], last_EB);
             // std::cout << "decompress(lossless_data, data, dec_data, targetEB[0], last_EB); done" << std::endl;
             last_EB = targetEBs[0];
             
             return dec_data;
+        }
+
+        // Point the access log at a vector to record every stream range the next
+        // progressive_reconstruct() consumes; nullptr switches it off.
+        void set_access_log(std::vector<std::pair<size_t, size_t>>* log){
+            access_log = log;
         }
 
         size_t get_retrieved_size(){
@@ -317,6 +324,7 @@ namespace SZ3 {
 
             //load dim && l2_diff
             size_t buffer_len = lossless_size[0];
+            note_access(lossless_data, lossless_size[0]);
             if(!first_time_loadcfg){
                 retrieved_size += buffer_len;
                 first_time_loadcfg = true;
@@ -344,6 +352,7 @@ namespace SZ3 {
                         buffer += lossless_size[i];
                     }
                     buffer_len = lossless_size[lossless_size.size() - 1];
+                    note_access(buffer, buffer_len);
                     // printf("[Log] unpred size = %lld\n", (long long int)buffer_len);
                     retrieved_size += buffer_len;
                     metadata1_size = buffer_len;
@@ -1037,6 +1046,20 @@ namespace SZ3 {
         size_t metadata1_offset = 0;
         bool first_time_loadcfg = false;
 
+        // Access log: every stream range the decoder consumes, as (offset, length)
+        // relative to the stream handed to progressive_reconstruct().  Off unless a
+        // caller points it at a vector.  A retrieve stage uses it to learn which blocks a
+        // tolerance touches -- the header block of each layer, the unpredictable block,
+        // and the bitgroup blocks the strategy selected -- so a bundle can carry exactly
+        // those and a reconstruct stage can check it was handed everything it reads.
+        std::vector<std::pair<size_t, size_t>>* access_log = nullptr;
+        uchar const* access_base = nullptr;
+        void note_access(uchar const* p, size_t n) {
+            if (access_log && access_base && p >= access_base) {
+                access_log->emplace_back(static_cast<size_t>(p - access_base), n);
+            }
+        }
+
         //debug only
         double max_error;
 //        T eb;
@@ -1049,6 +1072,7 @@ namespace SZ3 {
             double totalTime = 0;
 
             size_t length = data_length;
+            note_access(data_pos, data_length);
             retrieved_size += length;
             if (length == 0) {return; }
 

@@ -439,6 +439,21 @@ public:
     // before the codec can do anything, so there is no partial-read path here.
     bool read_block(uint64_t index, std::vector<uint8_t>& metadata,
                     std::vector<uint8_t>& component) const {
+        std::vector<std::vector<uint8_t>> components;
+        if (!read_block_components(index, metadata, components)) return false;
+        if (components.empty()) {
+            std::cerr << "ERROR: block " << index << " of " << path_
+                      << " has no stream" << std::endl;
+            return false;
+        }
+        component = std::move(components[0]);
+        return true;
+    }
+
+    // Reads one block whole: its metadata and every component.  A bundle block carries
+    // two (the range table and the touched bytes), an archive block one.
+    bool read_block_components(uint64_t index, std::vector<uint8_t>& metadata,
+                               std::vector<std::vector<uint8_t>>& components) const {
         SingleFileBlockLayout layout;
         if (!block_layout(index, layout)) return false;
         metadata.assign(layout.metadata_size, 0);
@@ -446,14 +461,16 @@ public:
             !read_at(layout.metadata_offset, metadata.data(), metadata.size())) {
             return false;
         }
-        if (layout.component_sizes.empty()) {
-            std::cerr << "ERROR: block " << index << " of " << path_
-                      << " has no stream" << std::endl;
-            return false;
+        components.assign(layout.component_sizes.size(), std::vector<uint8_t>());
+        for (size_t c = 0; c < components.size(); ++c) {
+            components[c].assign(layout.component_sizes[c], 0);
+            if (!components[c].empty() &&
+                !read_at(layout.component_offsets[c], components[c].data(),
+                         components[c].size())) {
+                return false;
+            }
         }
-        component.assign(layout.component_sizes[0], 0);
-        return component.empty() ||
-               read_at(layout.component_offsets[0], component.data(), component.size());
+        return true;
     }
 
 private:
